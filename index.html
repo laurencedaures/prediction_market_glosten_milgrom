@@ -3,629 +3,328 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Interactive Limit Order Book</title>
+<title>Market Making Model</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
 <style>
-/* Layout: header + key figures, then three columns (book | orders | log) */
-:root{
-  --bg:#f2f4f1; --panel:#ffffff; --ink:#15202a; --muted:#5b6a76; --line:#dde2df;
-  --bid:#0e7a5c; --bid-bg:rgba(14,122,92,.15); --ask:#bf3f2e; --ask-bg:rgba(191,63,46,.14);
-  --accent:#2a4bd1; --accent-ink:#ffffff; --you:#d99a00; --you-bg:rgba(217,154,0,.2);
-  --font-body:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
-  --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#0e1418; --panel:#162027; --ink:#e6edf0; --muted:#8fa1ac; --line:#26353f;
-    --bid:#3fcf9f; --bid-bg:rgba(63,207,159,.18); --ask:#f2715f; --ask-bg:rgba(242,113,95,.18);
-    --accent:#8ba3ff; --accent-ink:#0e1418; --you:#f2c14e; --you-bg:rgba(242,193,78,.22);
-    color-scheme:dark;
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#0e1418; --panel:#162027; --ink:#e6edf0; --muted:#8fa1ac; --line:#26353f;
-  --bid:#3fcf9f; --bid-bg:rgba(63,207,159,.18); --ask:#f2715f; --ask-bg:rgba(242,113,95,.18);
-  --accent:#8ba3ff; --accent-ink:#0e1418; --you:#f2c14e; --you-bg:rgba(242,193,78,.22);
-  color-scheme:dark;
-}
-*{box-sizing:border-box}
-html,body{margin:0}
-body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.45}
-.mono,.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
-h1,h2,h3{margin:0;text-wrap:balance}
-button,input{font:inherit;color:inherit}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-
-.wrap{max-width:1280px;margin:0 auto;padding:18px 16px 40px;display:flex;flex-direction:column;gap:14px}
-header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
-header h1{font-size:26px;font-weight:600;letter-spacing:-.01em}
-header p{margin:4px 0 0;color:var(--muted);max-width:60ch}
-.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.controls label{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}
-.controls input[type=range]{width:110px;accent-color:var(--accent)}
-.btn{border:1px solid var(--line);background:var(--panel);padding:7px 12px;border-radius:6px;cursor:pointer;font-weight:500}
-.btn:hover{border-color:var(--muted)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.stat{background:var(--panel);padding:10px 12px;display:flex;flex-direction:column;gap:2px}
-.stat span.l{font-size:12px;color:var(--muted)}
-.stat b{font-family:var(--font-mono);font-weight:600;font-size:18px;font-variant-numeric:tabular-nums}
-.stat b.bid{color:var(--bid)} .stat b.ask{color:var(--ask)}
-
-.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(0,.9fr);gap:14px;align-items:start}
-.col{display:flex;flex-direction:column;gap:14px;min-width:0}
-@media (max-width:1020px){.grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.col.third{grid-column:1/-1}}
-@media (max-width:680px){.grid{grid-template-columns:minmax(0,1fr)}}
-
-.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:10px}
-.card h2{font-size:15px;font-weight:600;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.card h2 small{font-weight:400;color:var(--muted);font-size:12px}
-
-/* Carnet */
-.lvhead,.lv{display:grid;grid-template-columns:78px 1fr 1fr 52px;gap:6px;align-items:center;padding:0 8px}
-.lvhead{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-bottom:4px;border-bottom:1px solid var(--line)}
-.lvhead span:nth-child(n+2),.lv span:nth-child(n+3){text-align:right}
-.lv{position:relative;width:100%;height:27px;border:0;background:transparent;text-align:left;cursor:pointer;font-family:var(--font-mono);font-size:13px;font-variant-numeric:tabular-nums;border-radius:3px}
-.lv:hover{background:color-mix(in srgb,var(--muted) 12%,transparent)}
-.lv .bar{position:absolute;right:0;top:3px;bottom:3px;border-radius:2px;opacity:1;pointer-events:none}
-.lv.ask .bar{background:var(--ask-bg)} .lv.bid .bar{background:var(--bid-bg)}
-.lv > span{position:relative}
-.lv.ask .px{color:var(--ask);font-weight:600} .lv.bid .px{color:var(--bid);font-weight:600}
-.lv.empty .px{opacity:.45;font-weight:400}
-.lv .mine:not(:empty){background:var(--you);color:#1b1500;border-radius:3px;padding:0 5px;font-size:11px;font-weight:600;justify-self:start;line-height:17px}
-.lv .n{color:var(--muted)}
-.lv .x{margin-left:6px;cursor:pointer;font-weight:700;padding:0 2px;border-radius:2px}
-.lv .x:hover{background:rgba(0,0,0,.2)}
-.spread{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 10px;margin:4px 0;border-block:1px dashed var(--muted);font-size:12.5px;color:var(--muted)}
-.spread b{color:var(--ink);font-family:var(--font-mono);font-weight:600}
-.hint{font-size:12.5px;color:var(--muted);margin:0}
-
-svg.depth{width:100%;height:auto;display:block}
-svg.depth text{fill:var(--muted);font-family:var(--font-mono);font-size:10px}
-svg.depth .gbid{fill:var(--bid-bg);stroke:var(--bid);stroke-width:1.5}
-svg.depth .gask{fill:var(--ask-bg);stroke:var(--ask);stroke-width:1.5}
-svg.depth .axis{stroke:var(--line);stroke-width:1}
-
-/* Ticket */
-.seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:6px;overflow:hidden}
-.seg button{border:0;background:transparent;padding:8px;cursor:pointer;font-weight:500}
-.seg button+button{border-left:1px solid var(--line)}
-.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
-.seg.side button[aria-pressed=true][data-v=buy]{background:var(--bid);color:#fff}
-.seg.side button[aria-pressed=true][data-v=sell]{background:var(--ask);color:#fff}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .seg.side button[aria-pressed=true]{color:#0b1114}}
-:root[data-theme="dark"] .seg.side button[aria-pressed=true]{color:#0b1114}
-.fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.field{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
-.field input{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:8px 10px;font-family:var(--font-mono);font-size:15px;width:100%}
-.field input:disabled{opacity:.5}
-.preview{background:var(--bg);border-left:3px solid var(--accent);padding:8px 10px;border-radius:0 6px 6px 0;font-size:13px;min-height:58px}
-.err{color:var(--ask);font-size:13px;min-height:18px;margin:0}
-.submit{padding:10px;font-weight:600;border-radius:6px;border:0;cursor:pointer;color:#fff}
-.submit.buy{background:var(--bid)} .submit.sell{background:var(--ask)}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .submit{color:#0b1114}}
-:root[data-theme="dark"] .submit{color:#0b1114}
-
-/* My orders */
-.mo{display:grid;grid-template-columns:52px 1fr auto auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
-.mo:last-child{border-bottom:0}
-.mo .s{font-weight:600} .mo .s.buy{color:var(--bid)} .mo .s.sell{color:var(--ask)}
-.mo .ahead{color:var(--muted);font-size:12px}
-.mo button{border:1px solid var(--line);background:transparent;border-radius:5px;padding:3px 8px;cursor:pointer;font-size:12px}
-.mo button:hover{border-color:var(--ask);color:var(--ask)}
-.empty-note{color:var(--muted);font-size:13px;margin:0}
-
-/* Missions */
-.missions{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.missions li{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:start}
-.missions .ck{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);margin-top:1px;display:grid;place-items:center;font-size:12px;color:transparent}
-.missions li.done .ck{background:var(--bid);border-color:var(--bid);color:#fff}
-.missions li.done b{text-decoration:line-through;text-decoration-color:var(--muted);color:var(--muted)}
-.missions b{font-weight:600;display:block;font-size:14px}
-.missions span.d{font-size:12.5px;color:var(--muted)}
-
-/* Journal & tape */
-.log{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto;padding-right:4px}
-.log div{font-size:13px;padding:6px 8px;border-radius:5px;background:var(--bg);border-left:3px solid var(--muted)}
-.log div.fill{border-color:var(--you)} .log div.ok{border-color:var(--accent)} .log div.warn{border-color:var(--ask)}
-.tape{font-family:var(--font-mono);font-size:13px;font-variant-numeric:tabular-nums;max-height:300px;overflow:auto}
-.tp{display:grid;grid-template-columns:44px 1fr 1fr;gap:6px;padding:2px 4px}
-.tp span:nth-child(n+2){text-align:right}
-.tp .t{color:var(--muted)}
-.tp.buy .p{color:var(--bid)} .tp.sell .p{color:var(--ask)}
-
-.lexique dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px 24px;margin:0}
-.lexique dt{font-weight:600} .lexique dd{margin:2px 0 0;color:var(--muted);font-size:13.5px}
-.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
-.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
-@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+/* VOICE: a lecture note that computes, for a microstructure class.
+   IDEA: the quoting rule of a market maker, built one term at a time.
+   PICTURE: the spread curve meeting the tick floor, the binding region shaded.
+   COLOUR and TYPE: cobalt for the model, orange for the constraint; Space Grotesk + Inter.
+   LAYOUT: cobalt strip, then numbered sections, each with its algebra left and its chart right. */
+:root{color-scheme:light dark;
+--bg:light-dark(#ffffff,#0a0d18);--ink:light-dark(#0b0d14,#e7ebff);--muted:light-dark(#5a6285,#9aa3c7);
+--zone:light-dark(#eef2ff,#111a33);--line:light-dark(#d3dbf6,#243159);
+--yes:light-dark(#1240e0,#6b8bff);--yesbg:light-dark(#dfe7ff,#16245a);
+--no:light-dark(#d9460f,#ff7a45);--nobg:light-dark(#ffe6da,#3a1a0e);
+--you:light-dark(#b88a00,#ffd34d);--youbg:light-dark(#fff3c4,#3a3000);--ok:light-dark(#0d7a3e,#4fd18b)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{--disp:"Space Grotesk",Inter,system-ui,sans-serif;margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 Inter,system-ui,sans-serif;overflow-x:clip}
+h1,h2,h3{font-family:var(--disp);font-weight:600;line-height:1.1;margin:0;text-wrap:balance}
+h2{font-size:clamp(24px,2.6vw,30px)}h3{font-size:18px;margin-bottom:6px}
+.band{padding:clamp(22px,3vw,40px) max(4vw,14px);border-top:1px solid var(--line)}
+.wrap{max-width:1240px;margin:0 auto}
+.strip{background:#1240e0;color:#fff;padding:20px max(4vw,14px) 18px;border:0}
+.strip h1{font-size:clamp(26px,3.4vw,40px)}
+.strip p{margin:6px 0 0;opacity:.9;max-width:70ch;font-size:15.5px}
+.lead{max-width:72ch;color:var(--muted)}
+.sec{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:26px;align-items:start;margin-top:16px}
+.num{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:var(--yes);color:#fff;font:600 15px var(--disp);margin-right:10px;flex:none}
+.hd{display:flex;align-items:center;margin-bottom:8px}
+.eq{background:var(--zone);border-left:3px solid var(--yes);border-radius:0 6px 6px 0;padding:12px 16px;margin:12px 0;font-size:17px;overflow-x:auto}
+.eq.key{border-left-color:var(--you);background:var(--youbg)}
+.frac{display:inline-grid;vertical-align:middle;text-align:center;margin:0 .25em}
+.frac>span:first-child{border-bottom:1.5px solid currentColor;padding:0 .35em 2px}
+.frac>span:last-child{padding:2px .35em 0}
+var{font-style:italic;font-family:Georgia,serif}
+.fig{position:relative;min-height:300px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.fig>svg{position:absolute;inset:0;width:100%;height:100%}
+.ctrl{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px 18px;background:var(--zone);border-radius:8px;padding:12px 14px;margin:14px 0}
+.ctrl label{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.ctrl b{font:600 16px var(--disp);color:var(--ink)}
+.ctrl label>span{white-space:nowrap}
+input[type=range]{width:100%;accent-color:var(--yes);min-height:30px}
+select{font:inherit;font-size:15px;color:inherit;min-height:38px;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.out{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:12px 0}
+.out div{background:var(--zone);border-radius:6px;padding:8px 10px}
+.out.hl div{background:var(--youbg)}
+.out i{display:block;font-style:normal;font-size:12px;color:var(--muted)}
+.out b{font:600 19px var(--disp);white-space:nowrap}
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:13px;color:var(--muted);margin-top:8px}
+.legend span::before{content:"";display:inline-block;width:14px;height:3px;margin-right:5px;vertical-align:middle;background:var(--c)}
+.legend span.sw::before{height:13px;border:1px solid var(--no);border-radius:2px}
+table{border-collapse:collapse;width:100%;font-size:14px;margin-top:10px}
+th,td{padding:6px 7px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}th{font-size:12px;color:var(--muted);font-weight:600}
+tr.bind td{background:var(--nobg)}
+.scroll{overflow-x:auto}
+.note{font-size:13.5px;color:var(--muted)}
+.card{border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+details{border-top:1px solid var(--line);padding:10px 0}
+summary{cursor:pointer;font-weight:600}
+details .ans{background:var(--zone);border-radius:6px;padding:10px 14px;margin-top:8px}
+.qs{max-width:900px}
+.pill{display:inline-block;background:var(--nobg);color:var(--no);border-radius:99px;padding:1px 9px;font-size:13px;font-weight:600}
+.pill.ok{background:var(--yesbg);color:var(--yes)}
+@media(max-width:860px){.sec{grid-template-columns:minmax(0,1fr)}}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
+<header class="strip"><div class="wrap">
+  <h1>Market Making on a Binary Contract</h1>
+  <p>How a market maker on Kalshi or Polymarket sets her two prices: a fair value, a spread against informed traders, a skew for the inventory she is carrying, and a grid she cannot quote inside. Each term is derived, then plotted. Move the sliders.</p>
+</div></header>
+
+<section class="band"><div class="wrap">
+  <h2>Why a binary contract is the easy case</h2>
+  <p class="lead">In an equity market the fundamental value is unobservable and unbounded, so a dealer models it. Here the contract pays $1 or $0, so its value is a Bernoulli draw: the expected value <em>is</em> the probability, and the variance is fixed by it.</p>
+  <div class="eq"><var>v</var> ∈ {0, 1} &nbsp;·&nbsp; E[<var>v</var>] = <var>p</var> &nbsp;·&nbsp; Var[<var>v</var>] = <var>p</var>(1 − <var>p</var>)</div>
+  <p class="lead">Everything below follows from that one line. Both the spread the maker needs and the skew she applies turn out to be proportional to <var>p</var>(1 − <var>p</var>), which vanishes at the wings — and that is where the exchange's price grid stops her.</p>
+</div></section>
+
+<section class="band"><div class="wrap">
+  <div class="hd"><span class="num">1</span><h2>The spread against informed traders</h2></div>
+  <div class="sec">
     <div>
-      <h1>Interactive Limit Order Book</h1>
-      <p>A fictional one-stock market. Bots post and cancel orders all the time. Place your own limit and market orders and watch what happens in the book.</p>
+      <p>Glosten and Milgrom (1985). A fraction <var>α</var> of orders come from traders who already know the outcome; the rest are uninformed and buy or sell with equal chance. The maker cannot tell them apart, so she quotes prices that are already conditioned on the direction of the order she is about to receive.</p>
+      <div class="eq">P(buy | <var>v</var>=1) = <span class="frac"><span>1 + <var>α</var></span><span>2</span></span> &nbsp;&nbsp; P(buy | <var>v</var>=0) = <span class="frac"><span>1 − <var>α</var></span><span>2</span></span></div>
+      <p>Bayes' rule turns those into the two quotes. The ask is what the contract is worth <em>given that someone is buying it from her</em>:</p>
+      <div class="eq">
+        <var>a</var> = E[<var>v</var> | buy] = <span class="frac"><span><var>p</var>(1 + <var>α</var>)</span><span><var>p</var>(1 + <var>α</var>) + (1 − <var>p</var>)(1 − <var>α</var>)</span></span><br><br>
+        <var>b</var> = E[<var>v</var> | sell] = <span class="frac"><span><var>p</var>(1 − <var>α</var>)</span><span><var>p</var>(1 − <var>α</var>) + (1 − <var>p</var>)(1 + <var>α</var>)</span></span>
+      </div>
+      <p>Subtracting them collapses to something very simple:</p>
+      <div class="eq key"><var>s</var> = <var>a</var> − <var>b</var> = <span class="frac"><span>4<var>α</var> <var>p</var>(1 − <var>p</var>)</span><span>1 − <var>α</var>²(2<var>p</var> − 1)²</span></span> &nbsp;≈&nbsp; <b>4<var>α</var> <var>p</var>(1 − <var>p</var>)</b></div>
+      <p class="note">The approximation is accurate to better than 1% for <var>α</var> below about 0.1. Two consequences. The spread is widest at 50¢ and collapses at the wings, in <em>absolute</em> terms. And it is zero when <var>α</var> = 0: with no informed traders a competitive maker quotes a single price. The spread is the price of ignorance, nothing else — no inventory, no costs, no profit.</p>
     </div>
-    <div class="controls">
-      <button class="btn" id="pause" type="button">Pause market</button>
-      <button class="btn" id="step" type="button">Next event</button>
-      <label for="speed">Speed <input id="speed" type="range" min="1" max="10" value="2"></label>
-      <button class="btn" id="reset" type="button">Reset</button>
-    </div>
-  </header>
-
-  <section class="stats" aria-label="Key figures">
-    <div class="stat"><span class="l">Best bid</span><b class="bid" id="sBid">-</b></div>
-    <div class="stat"><span class="l">Best ask</span><b class="ask" id="sAsk">-</b></div>
-    <div class="stat"><span class="l">Spread</span><b id="sSpread">-</b></div>
-    <div class="stat"><span class="l">Last price</span><b id="sLast">-</b></div>
-    <div class="stat"><span class="l">Your position</span><b id="sPos">0</b></div>
-    <div class="stat"><span class="l">Your P&amp;L</span><b id="sPnl">$0.00</b></div>
-  </section>
-
-  <div class="grid">
-    <div class="col">
-      <section class="card" aria-labelledby="hBook">
-        <h2 id="hBook">The order book <small>click a price to prepare an order</small></h2>
-        <div>
-          <div class="lvhead"><span>Yours</span><span>Price</span><span>Size</span><span>Orders</span></div>
-          <div id="asks"></div>
-          <div class="spread" id="spreadRow"></div>
-          <div id="bids"></div>
-        </div>
-        <p class="hint">Sellers (asks) are on top, buyers (bids) at the bottom. Dimmed rows are prices where nobody is waiting. Your own quantity shows in yellow.</p>
-      </section>
-      <section class="card" aria-labelledby="hDepth">
-        <h2 id="hDepth">Cumulative depth <small>quantity available up to each price</small></h2>
-        <svg class="depth" id="depth" viewBox="0 0 600 190" role="img" aria-label="Order book depth chart"></svg>
-        <div class="legend"><span><i style="background:var(--bid)"></i>Buyers</span><span><i style="background:var(--ask)"></i>Sellers</span></div>
-      </section>
-    </div>
-
-    <div class="col">
-      <section class="card" aria-labelledby="hTicket">
-        <h2 id="hTicket">Place an order</h2>
-        <form id="ticket" novalidate>
-          <div style="display:flex;flex-direction:column;gap:10px">
-            <div class="seg side" role="group" aria-label="Side">
-              <button type="button" data-v="buy" aria-pressed="true">Buy</button>
-              <button type="button" data-v="sell" aria-pressed="false">Sell</button>
-            </div>
-            <div class="seg type" role="group" aria-label="Order type">
-              <button type="button" data-v="limit" aria-pressed="true">Limit order</button>
-              <button type="button" data-v="market" aria-pressed="false">Market order</button>
-            </div>
-            <div class="fields">
-              <label class="field" for="price">Limit price ($)<input id="price" type="number" step="0.01" min="0.01" inputmode="decimal"></label>
-              <label class="field" for="qty">Quantity<input id="qty" type="number" step="10" min="1" value="50" inputmode="numeric"></label>
-            </div>
-            <div class="preview" id="preview" aria-live="polite"></div>
-            <p class="err" id="err" role="alert"></p>
-            <button class="submit buy" id="send" type="submit">Send buy order</button>
-          </div>
-        </form>
-      </section>
-
-      <section class="card" aria-labelledby="hMine">
-        <h2 id="hMine">Your resting orders <button class="btn" id="cancelAll" type="button" style="padding:3px 9px;font-size:12px">Cancel all</button></h2>
-        <div id="mine"></div>
-      </section>
-
-      <section class="card" aria-labelledby="hMis">
-        <h2 id="hMis">Exercises <small id="misCount">0 / 6</small></h2>
-        <ul class="missions" id="missions"></ul>
-      </section>
-    </div>
-
-    <div class="col third">
-      <section class="card" aria-labelledby="hLog">
-        <h2 id="hLog">Your order log</h2>
-        <div class="log" id="log" aria-live="polite"></div>
-      </section>
-      <section class="card" aria-labelledby="hTape">
-        <h2 id="hTape">Trades <small>color shows who took the initiative</small></h2>
-        <div class="tape">
-          <div class="tp" style="color:var(--muted);font-size:11px;text-transform:uppercase"><span>#</span><span>Price</span><span>Size</span></div>
-          <div id="tape"></div>
-        </div>
-      </section>
+    <div>
+      <div class="fig" id="f1Box"><svg id="f1" role="img" aria-label="Spread against informed traders, and the tick floor"></svg></div>
+      <div class="legend"><span style="--c:var(--yes)">Spread the maker needs</span><span style="--c:var(--no)">Smallest spread the grid allows</span><span class="sw" style="--c:var(--nobg)">Region where the grid binds</span></div>
+      <div class="ctrl">
+        <label><span>Informed share <var>α</var> = <b id="aV">0.05</b></span><input id="aS" type="range" min="1" max="200" value="50"></label>
+        <label><span>Price grid</span><select id="gS">
+          <option value="linear_cent" selected>1¢ everywhere (linear_cent)</option>
+          <option value="tapered_deci_cent">0.1¢ at the wings (tapered_deci_cent)</option>
+          <option value="deci_cent">0.1¢ everywhere (deci_cent)</option>
+          <option value="none">No grid at all</option>
+        </select></label>
+      </div>
+      <div class="out"><div><i>Binds below</i><b id="bLo">–</b></div><div><i>and above</i><b id="bHi">–</b></div><div><i>Share of the range</i><b id="bSh">–</b></div></div>
+      <p class="note" id="bindTxt"></p>
     </div>
   </div>
+</div></section>
 
-  <section class="card lexique" aria-labelledby="hLex">
-    <h2 id="hLex">Glossary</h2>
-    <dl>
-      <div><dt>Limit order book (LOB)</dt><dd>The list of all resting limit orders, sorted by price. Buyers on one side, sellers on the other.</dd></div>
-      <div><dt>Limit order</dt><dd>"I will buy (or sell) at this price or better." If nobody is on the other side, it waits in the book. It supplies liquidity.</dd></div>
-      <div><dt>Market order</dt><dd>"Buy (or sell) right now at the best available price." It consumes liquidity and may walk through several price levels.</dd></div>
-      <div><dt>Spread</dt><dd>The gap between the best ask and the best bid. It is the immediate cost of a round trip.</dd></div>
-      <div><dt>Price-time priority</dt><dd>The best price is served first. At the same price, the earliest order is served first (a queue).</dd></div>
-      <div><dt>Slippage</dt><dd>The difference between the best price shown at the start and the average price a large market order actually gets.</dd></div>
-      <div><dt>Aggressive / passive order</dt><dd>Aggressive: it crosses the book and trades immediately. Passive: it waits for a counterparty to come to it.</dd></div>
-      <div><dt>Depth</dt><dd>Cumulative quantity available near the best price. A deep book absorbs large orders without moving much.</dd></div>
-    </dl>
-  </section>
-</div>
+<section class="band"><div class="wrap">
+  <div class="hd"><span class="num">2</span><h2>The skew for inventory</h2></div>
+  <div class="sec">
+    <div>
+      <p>A maker who has been bought from repeatedly ends up short, and a prediction market gives her no easy way out: she usually cannot hedge, and the position settles at $0 or $1. So she stops quoting symmetrically around <var>p</var> and starts quoting around the price at which she is <em>indifferent</em> to holding one more contract.</p>
+      <p>With mean–variance preferences over terminal wealth and a position of <var>q</var> contracts:</p>
+      <div class="eq">U(<var>q</var>) = <var>c</var> + <var>q</var><var>p</var> − <span class="frac"><span><var>γ</var></span><span>2</span></span> <var>q</var>² <var>p</var>(1 − <var>p</var>)</div>
+      <p>Differentiating gives the reservation price, the value of one marginal contract to her:</p>
+      <div class="eq key"><var>r</var> = <var>p</var> − <var>γ</var> <var>q</var> <var>p</var>(1 − <var>p</var>)</div>
+      <p>She then quotes <var>r</var> ± <var>s</var>/2 instead of <var>p</var> ± <var>s</var>/2. Long inventory pushes both quotes down, so she is more likely to be sold to than bought from, and the position drains back towards zero. She is not forecasting; she is pricing her own risk.</p>
+      <p class="note">Note that the skew carries the same <var>p</var>(1 − <var>p</var>) factor as the spread. At the wings a maker is almost indifferent to inventory in absolute terms, because a 3¢ contract cannot move far against her. Both of her adjustments shrink together.</p>
+    </div>
+    <div>
+      <div class="fig" id="f2Box"><svg id="f2" role="img" aria-label="Quotes as a function of inventory"></svg></div>
+      <div class="legend"><span style="--c:var(--muted)">Fair value p</span><span style="--c:var(--you)">Reservation price r</span><span style="--c:var(--yes)">Bid</span><span style="--c:var(--no)">Ask</span></div>
+      <div class="ctrl">
+        <label><span>Fair value <var>p</var> = <b id="pV">50¢</b></span><input id="pS" type="range" min="10" max="990" value="500"></label>
+        <label><span>Risk aversion <var>γ</var> = <b id="gV">0.004</b></span><input id="gS2" type="range" min="0" max="200" value="40"></label>
+      </div>
+      <div class="out"><div><i>Flat (q = 0)</i><b id="q0">–</b></div><div><i>Long 100</i><b id="qL">–</b></div><div><i>Short 100</i><b id="qS">–</b></div></div>
+    </div>
+  </div>
+</div></section>
+
+<section class="band"><div class="wrap">
+  <div class="hd"><span class="num">3</span><h2>The grid, and where the money comes from</h2></div>
+  <div class="sec">
+    <div>
+      <p>The maker now has a target: quote <var>r</var> ± <var>s</var>/2. The exchange only lets her name prices on a grid, and the two quotes must differ by at least one tick. Her realised spread is therefore</p>
+      <div class="eq"><var>s</var><sub>realised</sub> = max( <var>s</var>, one tick )</div>
+      <p>This is the whole argument in one line. Where <var>s</var> &gt; tick the grid is irrelevant and she earns, in expectation, <b>nothing</b>: that is the Glosten–Milgrom zero-profit result, and it is a genuine prediction, not an accident of the model. What she collects from uninformed traders she hands back to informed ones.</p>
+      <p>Where the tick binds she is forced to quote wider than the information justifies, and the gap is a rent:</p>
+      <div class="eq key">E[profit per contract] = <span class="frac"><span>max(0, tick − <var>s</var>)</span><span>2</span></span></div>
+      <p>She cannot be undercut, because a competitor would have to improve by a whole tick and would then be quoting inside fair value. Competition moves to the only free dimension left, the queue: makers race to be early at the same price rather than to post a better one. The rent is real but it is dissipated in speed.</p>
+      <p class="note">Two caveats worth stating in class. The model assumes competitive makers, so any observed profit beyond this is market power, a fee rebate, or order flow that is biased rather than merely uninformed — which is exactly what Bartlett and O'Hara argue happens on Kalshi, where takers lean towards YES. And it assumes the maker knows <var>α</var>; in practice estimating the informed share is the hard part of the job.</p>
+    </div>
+    <div>
+      <div class="fig" id="f3Box"><svg id="f3" role="img" aria-label="Expected maker profit per contract"></svg></div>
+      <div class="legend"><span style="--c:var(--yes)">Profit per contract</span><span style="--c:var(--no)">Wing boundary</span></div>
+      <p class="note">The grid in use is stamped on the chart; change it in section 1. The curve is zero wherever information, not the grid, sets the spread.</p>
+      <div class="scroll"><table><thead><tr><th>Fair value</th><th>Spread needed</th><th>Tick</th><th>Realised</th><th>Profit / contract</th></tr></thead><tbody id="tbl"></tbody></table></div>
+      <p class="note">Rows where the grid binds are shaded.</p>
+      <h3 style="margin-top:16px">Does Kalshi's taper remove the rent?</h3>
+      <p class="note" style="margin-top:0">Share of the price range on which the grid binds, and the largest rent anywhere on it. A finer tick can only shrink max(0, tick − <var>s</var>), so the taper removes the maker's rent rather than moving it — but only at the wings, which is where it applies.</p>
+      <div class="scroll"><table><thead><tr><th><var>α</var></th><th colspan="2">1¢ everywhere</th><th colspan="2">Kalshi's taper</th></tr><tr><th></th><th>binds on</th><th>peak rent</th><th>binds on</th><th>peak rent</th></tr></thead><tbody id="tbl2"></tbody></table></div>
+      <p class="note">Below <var>α</var> = 1% the 1¢ centre tick binds at 50¢ too, and the taper cannot help there because it does not cover the middle of the range. Some evidence points that way: on Polymarket the median spread just before a trade in the 45–55¢ bucket is about 2 cents, only two ticks.</p>
+    </div>
+  </div>
+</div></section>
+
+<section class="band"><div class="wrap">
+  <div class="hd"><span class="num">4</span><h2>The quoting rule, assembled</h2></div>
+  <p class="lead">Putting the three terms together gives something a student can implement in a few lines, and it is close to what the bots in the companion simulators run.</p>
+  <div class="eq" style="font-size:16px">
+    <b>1.</b> Estimate the fair value &nbsp;<var>p</var>&nbsp; from the order flow and the news.<br>
+    <b>2.</b> Spread for information: &nbsp;<var>s</var> = 4<var>α</var> <var>p</var>(1 − <var>p</var>).<br>
+    <b>3.</b> Reservation price for inventory: &nbsp;<var>r</var> = <var>p</var> − <var>γ</var> <var>q</var> <var>p</var>(1 − <var>p</var>).<br>
+    <b>4.</b> Target quotes: &nbsp;bid = <var>r</var> − <var>s</var>/2, &nbsp; ask = <var>r</var> + <var>s</var>/2.<br>
+    <b>5.</b> Round to the grid: &nbsp;bid down, ask up, and force ask − bid ≥ one tick.<br>
+    <b>6.</b> Withdraw entirely when <var>α</var> jumps — before a scheduled announcement, or when the flow turns one-sided.
+  </div>
+  <div class="card" style="margin-top:14px"><h3>What the model leaves out</h3>
+  <p class="note" style="margin:0">Step 6 is the one the algebra cannot deliver: a static model has no way to represent "something is about to happen". Also absent are the maker's capital constraint, which on a fully collateralized exchange locks the full $1 behind every pair of contracts; competition between makers for the queue, which decides who actually gets the rent in step 3; fees and rebates, which on Kalshi fall on takers and so change the flow a maker sees rather than her own economics; and the possibility that the uninformed flow is biased rather than balanced, which breaks the zero-profit result in the maker's favour.</p></div>
+</div></section>
+
+<section class="band" style="background:var(--zone)"><div class="wrap qs">
+  <h2>Application questions</h2>
+  <details><summary>1. The quotes, by hand</summary><div class="qbody">Take <var>p</var> = 0.30 and <var>α</var> = 0.05. Compute the ask, the bid and the spread from the exact formulas, then check against 4<var>αp</var>(1 − <var>p</var>).</div>
+  <div class="ans">Ask = 0.30(1.05) / [0.30(1.05) + 0.70(0.95)] = 0.315 / 0.980 = <b>0.3214</b>. Bid = 0.30(0.95) / [0.30(0.95) + 0.70(1.05)] = 0.285 / 1.020 = <b>0.2794</b>. Spread = <b>4.20¢</b>. The approximation gives 4(0.05)(0.30)(0.70) = 4.20¢: identical to three figures.</div></details>
+
+  <details><summary>2. Where does the grid bind?</summary><div class="qbody">With <var>α</var> = 0.05 and a flat 1¢ tick, solve for the prices at which the maker's desired spread equals one tick. What fraction of the 1–99¢ range is affected?</div>
+  <div class="ans">Set 4(0.05)<var>p</var>(1 − <var>p</var>) = 0.01, so <var>p</var>(1 − <var>p</var>) = 0.05, giving <var>p</var> = 5.3% or 94.7%. The grid binds on roughly <b>10%</b> of the price range. Small — but on Kalshi about two thirds of contracts trade in exactly that region, so it binds on most of the volume. That mismatch between range and volume is the argument for the taper.</div></details>
+
+  <details><summary>3. The same question with the taper</summary><div class="qbody">Repeat with a 0.1¢ tick at the wings. Where does the grid bind now?</div>
+  <div class="ans">4(0.05)<var>p</var>(1 − <var>p</var>) = 0.001 gives <var>p</var>(1 − <var>p</var>) = 0.005, so <var>p</var> ≈ 0.5% or 99.5%. The binding region nearly disappears, and the maker can quote the spread the information justifies almost everywhere. Note the taper does not help her earn more — it removes a rent. It helps the taker.</div></details>
+
+  <details><summary>4. Reading the zero-profit result</summary><div class="qbody">The model says a competitive maker earns zero where the tick does not bind. Yet real market makers are profitable. Give three reasons the two are not in contradiction.</div>
+  <div class="ans">First, the uninformed flow may not be balanced: if takers systematically buy YES, the maker sells it above fair value and keeps the difference, which is the optimism tax in Bartlett and O'Hara. Second, makers are not perfectly competitive — queue position, speed and exchange liquidity programmes all create rents. Third, the maker may simply estimate <var>p</var> better than the flow she trades against, in which case she is not a pure maker at all but an informed trader who happens to quote.</div></details>
+
+  <details><summary>5. Inventory at the wings</summary><div class="qbody">With <var>γ</var> = 0.004, how far does a long position of 200 contracts move the reservation price at <var>p</var> = 0.50, and at <var>p</var> = 0.05? Comment.</div>
+  <div class="ans">At 0.50: <var>γqp</var>(1 − <var>p</var>) = 0.004 × 200 × 0.25 = 0.20, a shift of <b>20¢</b>, enormous. At 0.05: 0.004 × 200 × 0.0475 = 0.038, a shift of <b>3.8¢</b> — but on a 5¢ contract that is most of its value, and it would push her quotes below zero. The lesson is that <var>γ</var> must be read against the contract's own price: the same risk aversion means something very different at the two ends of the range.</div></details>
+
+  <details><summary>6. Why not just quote wider?</summary><div class="qbody">A maker worried about informed traders could simply double her spread. What does the model say she gives up, and what does she gain?</div>
+  <div class="ans">She gains protection: the informed trader's profit per trade is capped by the spread she quotes, so a wider spread transfers less to him. She gives up the uninformed flow, which is the only flow she makes money from, and she gives up queue position to any competitor willing to quote tighter. The optimal spread is the one that just compensates her for the adverse selection she expects, which is precisely <var>s</var> = 4<var>αp</var>(1 − <var>p</var>). Quoting wider is not safer in equilibrium; it is simply not trading.</div></details>
+</div></section>
+
+<section class="band"><div class="wrap">
+  <p class="note">The model is standard: Glosten and Milgrom (1985) for the information term, and an inventory term in the spirit of Ho and Stoll (1981) and Avellaneda and Stoikov (2008), specialised to a Bernoulli payoff. The price grids and the two thirds of volume at the wings are Kalshi's. Everything plotted here comes from the formulas above, not from market data.</p>
+</div></section>
 
 <script>
-(() => {
-  'use strict';
-  const YOU = 'you', BOT = 'bot', N = 9;
-  const $ = id => document.getElementById(id);
-  const P = c => (c / 100).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-  const P3 = c => (c / 100).toLocaleString('en-US', {minimumFractionDigits: 3, maximumFractionDigits: 3});
-  const E = c => (c < 0 ? '-' : '') + '$' + P(Math.abs(c));
-  const plural = (n, s, p) => n > 1 ? p : s;
+{
+const $ = id => document.getElementById(id);
+const STRUCT = { linear_cent: { e: 10, c: 10 }, tapered_deci_cent: { e: 1, c: 10 }, deci_cent: { e: 1, c: 1 }, none: { e: 0, c: 0 } };
+const tickAt = (s, m) => (m < 100 || m > 900) ? STRUCT[s].e : STRUCT[s].c;   // m in tenths of a cent
+const cS = m => (Math.abs(m) < 9.95 ? (m / 10).toFixed(2) : Math.abs(m) % 10 < 0.05 ? (m / 10).toFixed(0) : (m / 10).toFixed(1)) + '¢';
+const gm = (p, a) => 4 * a * p * (1 - p) / (1 - a * a * (2 * p - 1) ** 2);   // spread, in dollars
+const GLBL = { linear_cent: '1\u00a2 everywhere', center_whole_edge_half_cent: '0.5\u00a2 at the wings', tapered_deci_cent: "Kalshi's taper \u2014 0.1\u00a2 at the wings", deci_cent: '0.1\u00a2 everywhere', none: 'no grid at all' };
+const gridTag = (x, y) => `<text x="${x}" y="${y}" font-size="12" font-weight="600" fill="var(--no)">Grid: ${GLBL[G]}</text>`;
+let A = 0.05, G = 'linear_cent', P = 500, GA = 0.004;
 
-  let book, orders, seq, nextId, tradeN, st, journal, tape, done, timer, paused = false;
-  let side = 'buy', type = 'limit';
-
-  const MISSIONS = [
-    {id: 'm1', t: 'Post a resting order', d: 'Place a limit buy below the best ask. It crosses nobody and joins the book.'},
-    {id: 'm2', t: 'Improve the best price', d: 'Place a resting limit order that becomes the new best bid (or ask). The spread must be at least 2 ticks.'},
-    {id: 'm3', t: 'Fire an aggressive limit order', d: 'Buy with a limit price at or above the best ask. Check the price you are actually filled at.'},
-    {id: 'm4', t: 'Sweep several levels', d: 'Send a market order larger than the size at the best level. Read the slippage in the log.'},
-    {id: 'm5', t: 'Join the queue', d: 'Place an order at a price where others already wait. In "Your resting orders", read the quantity ahead of you.'},
-    {id: 'm6', t: 'Cancel an order', d: 'Remove one of your resting orders with the Cancel button.'}
-  ];
-
-  /* ---------- Engine ---------- */
-  const rq = (a = 10, b = 100) => a + 10 * Math.floor(Math.random() * ((b - a) / 10 + 1));
-  const geom = p => { let g = 0; while (Math.random() > p && g < 10) g++; return g; };
-  const book_of = o => o.side === 'buy' ? book.bid : book.ask;
-
-  function best(s) {
-    let b = null;
-    for (const p of book[s].keys()) if (b === null || (s === 'ask' ? p < b : p > b)) b = p;
-    return b;
+function axes(s, pad, xlab) {
+  const W = s.clientWidth, H = s.clientHeight;
+  return { W, H, L: pad[0], R: pad[1], T: pad[2], B: pad[3], iw: W - pad[0] - pad[1], ih: H - pad[2] - pad[3] };
+}
+// ---- figure 1: spread needed vs the tick floor, log y ----
+function f1() {
+  const s = $('f1'), { W, H, L, R, T, B, iw, ih } = axes(s, [52, 14, 16, 42]); if (!W) return;
+  const lo = Math.log(0.02), hi = Math.log(30);                    // cents, log scale
+  const x = m => L + iw * m / 1000, y = v => T + ih * (1 - (Math.log(Math.max(v, 0.02)) - lo) / (hi - lo));
+  let g = '';
+  for (const v of [0.1, 1, 10]) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}¢</text>`;
+  for (const m of [0, 250, 500, 750, 1000]) g += `<text x="${x(m)}" y="${T + ih + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${m / 10}¢</text>`;
+  g += `<text x="${L + iw / 2}" y="${H - 6}" text-anchor="middle" font-size="12" fill="var(--muted)">Fair value of the contract</text>`;
+  g += `<text transform="translate(13 ${T + ih / 2}) rotate(-90)" text-anchor="middle" font-size="12" fill="var(--muted)">Spread (log scale)</text>`;
+  // binding region
+  let bands = [], cur = null, nBind = 0;
+  for (let m = 1; m <= 999; m += 1) {
+    const need = 1000 * gm(m / 1000, A), tk = G === 'none' ? 0 : tickAt(G, m);
+    if (tk > need) { nBind++; if (!cur) cur = [m, m]; else cur[1] = m; } else if (cur) { bands.push(cur); cur = null; }
   }
-  function refPrice() {
-    const bb = best('bid'), ba = best('ask');
-    return bb !== null && ba !== null ? Math.round((bb + ba) / 2) : st.last;
-  }
-  function levels(s) {
-    const arr = [];
-    for (const [price, q] of book[s]) {
-      let qty = 0, mine = 0;
-      for (const o of q) { qty += o.rem; if (o.owner === YOU) mine += o.rem; }
-      arr.push({price, qty, n: q.length, mine});
-    }
-    arr.sort((a, b) => s === 'ask' ? a.price - b.price : b.price - a.price);
-    return arr;
-  }
-  function queueAhead(o) {
-    let a = 0;
-    for (const x of book_of(o).get(o.price) || []) { if (x === o) break; a += x.rem; }
-    return a;
-  }
-
-  function submit(o) {
-    o.id = nextId++; o.rem = o.qty; o.ts = ++seq;
-    const opp = o.side === 'buy' ? book.ask : book.bid;
-    const oppName = o.side === 'buy' ? 'ask' : 'bid';
-    const fills = [];
-    while (o.rem > 0) {
-      const bp = best(oppName);
-      if (bp === null) break;
-      if (o.type === 'limit' && (o.side === 'buy' ? bp > o.price : bp < o.price)) break;
-      const q = opp.get(bp), r = q[0];
-      const n = Math.min(r.rem, o.rem);
-      r.rem -= n; o.rem -= n;
-      fills.push({price: bp, qty: n});
-      st.last = bp; tradeN++;
-      tape.unshift({n: tradeN, price: bp, qty: n, side: o.side});
-      if (tape.length > 40) tape.pop();
-      const sgn = o.side === 'buy' ? 1 : -1;
-      if (o.owner === YOU) { st.cash -= sgn * bp * n; st.pos += sgn * n; }
-      if (r.owner === YOU) { st.cash += sgn * bp * n; st.pos -= sgn * n; }
-      if (r.owner === YOU && o.owner !== YOU) {
-        log('fill', `Your ${r.side} order #${r.id} was hit: ${n} at ${P(bp)}${r.rem === 0 ? ' (fully filled)' : `, ${r.rem} still resting`}.`);
-      }
-      if (r.rem === 0) { q.shift(); orders.delete(r.id); if (!q.length) opp.delete(bp); }
-    }
-    let rested = false;
-    if (o.rem > 0 && o.type === 'limit') {
-      const m = book_of(o);
-      if (!m.has(o.price)) m.set(o.price, []);
-      m.get(o.price).push(o); orders.set(o.id, o); rested = true;
-    }
-    return {o, fills, rested};
-  }
-  function cancel(id) {
-    const o = orders.get(id);
-    if (!o) return false;
-    const m = book_of(o), q = m.get(o.price);
-    q.splice(q.indexOf(o), 1);
-    if (!q.length) m.delete(o.price);
-    orders.delete(id);
-    return true;
-  }
-
-  /* Dry run without touching the book, used for the preview */
-  function dry(s, t, price, qty) {
-    const lv = levels(s === 'buy' ? 'ask' : 'bid');
-    let rem = qty, cost = 0, used = 0;
-    for (const l of lv) {
-      if (rem <= 0) break;
-      if (t === 'limit' && (s === 'buy' ? l.price > price : l.price < price)) break;
-      const n = Math.min(l.qty, rem);
-      rem -= n; cost += n * l.price; used++;
-    }
-    return {filled: qty - rem, rem, cost, used, bestOpp: lv.length ? lv[0].price : null};
-  }
-
-  /* ---------- Bots ---------- */
-  function botEvent() {
-    const r = Math.random(), ref = refPrice();
-    const s = Math.random() < .5 ? 'buy' : 'sell';
-    const botCount = [...orders.values()].filter(o => o.owner === BOT);
-    if (r < .48 && botCount.length < 140) {
-      const g = geom(.45);
-      const price = Math.max(100, s === 'buy' ? ref - 1 - g : ref + 1 + g);
-      submit({side: s, type: 'limit', price, qty: rq(), owner: BOT});
-    } else if (r < .60) {
-      submit({side: s, type: 'market', qty: rq(10, 40), owner: BOT});
-    } else if (r < .64) {
-      submit({side: s, type: 'market', qty: rq(80, 200), owner: BOT});
-    } else if (r < .70) {
-      const b = best(s === 'buy' ? 'ask' : 'bid');
-      if (b !== null) submit({side: s, type: 'limit', price: b, qty: rq(10, 60), owner: BOT});
-    } else if (botCount.length) {
-      cancel(botCount[Math.floor(Math.random() * botCount.length)].id);
-    }
-    // Keep both sides of the book alive
-    for (const sd of ['buy', 'sell']) {
-      const nm = sd === 'buy' ? 'bid' : 'ask';
-      if (book[nm].size < 4) {
-        const rf = refPrice(), g = geom(.5);
-        submit({side: sd, type: 'limit', price: sd === 'buy' ? rf - 2 - g : rf + 2 + g, qty: rq(), owner: BOT});
-      }
-    }
-  }
-
-  /* ---------- Log and exercises ---------- */
-  function log(cls, html) { journal.unshift({cls, html}); if (journal.length > 40) journal.pop(); }
-  function complete(id) { if (!done.has(id)) { done.add(id); log('ok', `Exercise complete: ${MISSIONS.find(m => m.id === id).t}.`); } }
-
-  function report(res, pre) {
-    const o = res.o, verb = o.side;
-    const filled = o.qty - o.rem;
-    const notional = res.fills.reduce((a, f) => a + f.price * f.qty, 0);
-    const avg = filled ? Math.round(notional / filled) : 0;
-    const prices = new Set(res.fills.map(f => f.price));
-    const oppBest = o.side === 'buy' ? pre.ba : pre.bb;
-    if (o.type === 'market') {
-      if (!filled) { log('warn', `Market ${verb} of ${o.qty}: rejected, there is nobody on the other side of the book.`); return; }
-      const avgRaw = notional / filled, slip = Math.abs(avgRaw - oppBest);
-      let t = `Market ${verb} of ${o.qty}: ${filled} filled at an average price of ${P3(avgRaw)}, across ${prices.size} price ${plural(prices.size, 'level', 'levels')}. The best price at the start was ${P(oppBest)}, so slippage is ${P3(slip)} per unit.`;
-      if (o.rem) t += ` The book ran out; the remaining ${o.rem} are cancelled.`;
-      log('ok', t); return;
-    }
-    if (!filled) {
-      const ahead = queueAhead(o);
-      log('ok', `Limit ${verb} of ${o.qty} at ${P(o.price)}: it does not cross the book${oppBest !== null ? ` (best price on the other side: ${P(oppBest)})` : ''}. It rests in the queue${ahead ? `, with ${ahead} ahead of you` : ', first in line at this price'}.`);
-      return;
-    }
-    let t = `Limit ${verb} of ${o.qty} at ${P(o.price)}: ${filled} filled immediately at an average price of ${P(avg)}. You trade at the resting orders' prices, not at your own limit.`;
-    if (o.rem) t += ` The remaining ${o.rem} rest in the book at ${P(o.price)}.`;
-    log('ok', t);
-  }
-
-  /* ---------- User actions ---------- */
-  function readTicket() {
-    const qty = parseInt($('qty').value, 10);
-    const price = Math.round(parseFloat($('price').value) * 100);
-    return {qty, price};
-  }
-  function placeUser() {
-    const {qty, price} = readTicket();
-    $('err').textContent = '';
-    if (!Number.isFinite(qty) || qty < 1) { $('err').textContent = 'Enter a whole quantity of at least 1.'; return; }
-    if (type === 'limit' && (!Number.isFinite(price) || price < 1)) { $('err').textContent = 'Enter a limit price, for example 100.05.'; return; }
-    const pre = {bb: best('bid'), ba: best('ask')};
-    const res = submit({side, type, price: type === 'limit' ? price : null, qty, owner: YOU});
-    report(res, pre);
-    const nFills = res.fills.length;
-    const nPrices = new Set(res.fills.map(f => f.price)).size;
-    if (type === 'limit' && res.rested && !nFills) {
-      complete('m1');
-      if (side === 'buy' ? (pre.bb === null || price > pre.bb) : (pre.ba === null || price < pre.ba)) complete('m2');
-      if (queueAhead(res.o) > 0) complete('m5');
-    }
-    if (type === 'limit' && nFills) complete('m3');
-    if (type === 'market' && nPrices >= 2) complete('m4');
-    if (type === 'limit' && res.rested && nFills === 0 && queueAhead(res.o) > 0) complete('m5');
-    render();
-  }
-  function cancelMine(id) {
-    const o = orders.get(id);
-    if (o && o.owner === YOU && cancel(id)) {
-      log('ok', `Order #${id} cancelled: ${o.side} of ${o.rem} at ${P(o.price)} removed from the book. You lose your place in the queue.`);
-      complete('m6'); render();
-    }
-  }
-
-  /* ---------- Interface ---------- */
-  function setSide(s) {
-    side = s;
-    document.querySelectorAll('.seg.side button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === s)));
-    const btn = $('send'); btn.className = 'submit ' + s;
-    btn.textContent = s === 'buy' ? 'Send buy order' : 'Send sell order';
-    preview();
-  }
-  function setType(t) {
-    type = t;
-    document.querySelectorAll('.seg.type button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === t)));
-    $('price').disabled = t === 'market';
-    preview();
-  }
-
-  function preview() {
-    const {qty, price} = readTicket();
-    const el = $('preview');
-    if (!Number.isFinite(qty) || qty < 1) { el.textContent = 'Enter a quantity to see what would happen.'; return; }
-    const verb = side === 'buy' ? 'buy' : 'sell';
-    if (type === 'market') {
-      const d = dry(side, 'market', null, qty);
-      if (!d.filled) { el.textContent = 'Nobody is on the other side: a market order would be rejected.'; return; }
-      const avg = Math.round(d.cost / d.filled);
-      el.innerHTML = `You want to ${verb} <b>${qty}</b> right now. Estimate: average price <b class="mono">${P(avg)}</b> across ${d.used} ${plural(d.used, 'level', 'levels')}, versus a best price of <span class="mono">${P(d.bestOpp)}</span>.${d.rem ? ` The book is ${d.rem} short.` : ''}`;
-      return;
-    }
-    if (!Number.isFinite(price) || price < 1) { el.textContent = 'Enter a limit price to see whether the order crosses the book.'; return; }
-    const d = dry(side, 'limit', price, qty);
-    if (d.filled) {
-      const avg = Math.round(d.cost / d.filled);
-      el.innerHTML = `<b>This price crosses the book</b>: ${d.filled} filled immediately at an average price of <b class="mono">${P(avg)}</b>.${d.rem ? ` The remaining ${d.rem} will rest at ${P(price)}.` : ''}`;
-    } else {
-      const same = (book[side === 'buy' ? 'bid' : 'ask'].get(price) || []).reduce((a, o) => a + o.rem, 0);
-      el.innerHTML = `<b>This price does not cross the book</b>: the order will rest at <span class="mono">${P(price)}</span>. ${same ? `<b>${same}</b> already wait at this price: you will queue behind them.` : 'Nobody waits at this price: you will be first in the queue.'}`;
-    }
-  }
-
-  const rowsA = [], rowsB = [];
-  function mkRow(cls) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'lv ' + cls;
-    b.innerHTML = '<i class="bar"></i><span class="mine"></span><span class="px"></span><span class="q"></span><span class="n"></span>';
-    return b;
-  }
-  function buildLadder() {
-    $('asks').replaceChildren(); $('bids').replaceChildren(); rowsA.length = 0; rowsB.length = 0;
-    for (let i = 0; i < N; i++) { const r = mkRow('ask'); rowsA.push(r); $('asks').appendChild(r); }
-    for (let i = 0; i < N; i++) { const r = mkRow('bid'); rowsB.push(r); $('bids').appendChild(r); }
-  }
-  function fillRow(row, p, l, mx) {
-    row.dataset.price = p;
-    row.querySelector('.px').textContent = P(p);
-    row.querySelector('.q').textContent = l ? l.qty : '';
-    row.querySelector('.n').textContent = l ? l.n : '';
-    const mh = l && l.mine ? `${l.mine}<span class="x" role="button" title="Cancel my orders at this price" aria-label="Cancel my orders at this price">✕</span>` : '';
-    const mc = row.querySelector('.mine');
-    if (mc._h !== mh) { mc.innerHTML = mh; mc._h = mh; }
-    row.querySelector('.bar').style.width = l ? (l.qty / mx * 62) + '%' : '0';
-    row.classList.toggle('empty', !l);
-    const isAsk = row.classList.contains('ask');
-    row.title = (isAsk ? 'Prepare a buy at ' : 'Prepare a sell at ') + P(p);
-  }
-  function renderLadder() {
-    const bb = best('bid'), ba = best('ask'), ref = refPrice();
-    const A = new Map(levels('ask').map(l => [l.price, l])), B = new Map(levels('bid').map(l => [l.price, l]));
-    const a0 = ba !== null ? ba : ref + 1, b0 = bb !== null ? bb : ref - 1;
-    let mx = 1;
-    for (let i = 0; i < N; i++) { mx = Math.max(mx, (A.get(a0 + i) || {qty: 0}).qty, (B.get(b0 - i) || {qty: 0}).qty); }
-    rowsA.forEach((r, j) => { const p = a0 + (N - 1 - j); fillRow(r, p, A.get(p), mx); });
-    rowsB.forEach((r, j) => { const p = b0 - j; fillRow(r, p, B.get(p), mx); });
-    const sp = bb !== null && ba !== null ? ba - bb : null;
-    $('spreadRow').innerHTML = sp === null
-      ? '<span>One side of the book is empty.</span>'
-      : `<span>Spread <b>${sp}</b> ${plural(sp, 'tick', 'ticks')} ($${P(sp)})</span><span>Mid price <b>${P(Math.round((bb + ba) / 2))}</b></span>`;
-  }
-
-  function renderDepth() {
-    const bb = best('bid'), ba = best('ask'), ref = refPrice();
-    const W = 600, H = 190, L = 40, R = 8, T = 10, Bt = 26;
-    const lo = (bb !== null ? bb : ref) - 14, hi = (ba !== null ? ba : ref) + 14;
-    const bidsL = levels('bid').filter(l => l.price >= lo), asksL = levels('ask').filter(l => l.price <= hi);
-    let cb = 0, ca = 0;
-    const bc = bidsL.map(l => ({p: l.price, c: (cb += l.qty)})), ac = asksL.map(l => ({p: l.price, c: (ca += l.qty)}));
-    const mx = Math.max(cb, ca, 1);
-    const x = p => L + (p - lo) / (hi - lo) * (W - L - R), y = c => H - Bt - c / mx * (H - Bt - T);
-    const base = H - Bt;
-    let g = '';
-    if (bc.length) {
-      let d = `M${x(bc[0].p)},${base}`;
-      bc.forEach((pt, i) => { d += ` L${x(pt.p)},${y(pt.c)} L${x(i + 1 < bc.length ? bc[i + 1].p : lo)},${y(pt.c)}`; });
-      d += ` L${x(lo)},${base} Z`; g += `<path class="gbid" d="${d}"/>`;
-    }
-    if (ac.length) {
-      let d = `M${x(ac[0].p)},${base}`;
-      ac.forEach((pt, i) => { d += ` L${x(pt.p)},${y(pt.c)} L${x(i + 1 < ac.length ? ac[i + 1].p : hi)},${y(pt.c)}`; });
-      d += ` L${x(hi)},${base} Z`; g += `<path class="gask" d="${d}"/>`;
-    }
-    const mid = Math.round((lo + hi) / 2);
-    g += `<line class="axis" x1="${L}" y1="${base}" x2="${W - R}" y2="${base}"/><line class="axis" x1="${L}" y1="${T}" x2="${L}" y2="${base}"/>`
-      + `<text x="${L - 5}" y="${T + 8}" text-anchor="end">${mx}</text><text x="${L - 5}" y="${base}" text-anchor="end">0</text>`
-      + `<text x="${L}" y="${H - 8}">${P(lo)}</text><text x="${x(mid)}" y="${H - 8}" text-anchor="middle">${P(mid)}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">${P(hi)}</text>`;
-    $('depth').innerHTML = g;
-  }
-
-  function renderMine() {
-    const mine = [...orders.values()].filter(o => o.owner === YOU).sort((a, b) => a.ts - b.ts);
-    $('mine').innerHTML = mine.length ? mine.map(o => `<div class="mo"><span class="s ${o.side}">${o.side === 'buy' ? 'Buy' : 'Sell'}</span><span class="mono">${o.rem}${o.rem < o.qty ? ' / ' + o.qty : ''} at ${P(o.price)}</span><span class="ahead">ahead of you: ${queueAhead(o)}</span><button type="button" data-cancel="${o.id}" aria-label="Cancel order ${o.id}">Cancel</button></div>`).join('')
-      : '<p class="empty-note">No resting orders. A limit order that does not cross the book will appear here.</p>';
-  }
-  function renderStats() {
-    const bb = best('bid'), ba = best('ask');
-    $('sBid').textContent = bb !== null ? P(bb) : '-';
-    $('sAsk').textContent = ba !== null ? P(ba) : '-';
-    $('sSpread').textContent = bb !== null && ba !== null ? `${ba - bb} ${plural(ba - bb, 'tick', 'ticks')}` : '-';
-    $('sLast').textContent = P(st.last);
-    $('sPos').textContent = (st.pos > 0 ? '+' : '') + st.pos;
-    const mid = bb !== null && ba !== null ? (bb + ba) / 2 : st.last;
-    const pnl = Math.round(st.cash + st.pos * mid);
-    const el = $('sPnl'); el.textContent = (pnl > 0 ? '+' : '') + E(pnl);
-    el.className = pnl > 0 ? 'bid' : pnl < 0 ? 'ask' : '';
-  }
-  function renderMissions() {
-    $('missions').innerHTML = MISSIONS.map(m => `<li class="${done.has(m.id) ? 'done' : ''}"><span class="ck" aria-hidden="true">✓</span><div><b>${m.t}</b><span class="d">${m.d}</span></div></li>`).join('');
-    $('misCount').textContent = `${done.size} / ${MISSIONS.length}`;
-  }
-  function render() {
-    renderStats(); renderLadder(); renderDepth(); renderMine(); renderMissions(); preview();
-    $('log').innerHTML = journal.length ? journal.map(j => `<div class="${j.cls}">${j.html}</div>`).join('') : '<div>Your orders and their fills are explained here.</div>';
-    $('tape').innerHTML = tape.slice(0, 16).map(t => `<div class="tp ${t.side}"><span class="t">${t.n}</span><span class="p">${P(t.price)}</span><span>${t.qty}</span></div>`).join('');
-  }
-
-  /* ---------- Start-up ---------- */
-  function init() {
-    book = {bid: new Map(), ask: new Map()}; orders = new Map(); seq = 0; nextId = 1; tradeN = 0;
-    st = {cash: 0, pos: 0, last: 10000}; journal = []; tape = []; done = new Set();
-    for (let k = 0; k < 12; k++) {
-      for (let i = 0, n = 1 + Math.floor(Math.random() * 3); i < n; i++) {
-        submit({side: 'buy', type: 'limit', price: 9999 - k, qty: rq(), owner: BOT});
-        submit({side: 'sell', type: 'limit', price: 10001 + k, qty: rq(), owner: BOT});
-      }
-    }
-    $('price').value = '99.98'; setSide('buy'); setType('limit');
-    buildLadder(); render();
-  }
-  function schedule() {
-    clearInterval(timer);
-    if (!paused) timer = setInterval(() => { botEvent(); render(); }, 1000 / Number($('speed').value));
-  }
-
-  document.querySelectorAll('.seg.side button').forEach(b => b.addEventListener('click', () => setSide(b.dataset.v)));
-  document.querySelectorAll('.seg.type button').forEach(b => b.addEventListener('click', () => setType(b.dataset.v)));
-  ['price', 'qty'].forEach(id => $(id).addEventListener('input', preview));
-  $('ticket').addEventListener('submit', e => { e.preventDefault(); placeUser(); });
-  const rowClick = e => {
-    const row = e.target.closest('.lv'); if (!row) return;
-    if (e.target.closest('.x')) {
-      const p = Number(row.dataset.price), sd = row.classList.contains('ask') ? 'sell' : 'buy';
-      [...orders.values()].filter(o => o.owner === YOU && o.price === p && o.side === sd).forEach(o => cancelMine(o.id));
-      return;
-    }
-    $('price').value = (Number(row.dataset.price) / 100).toFixed(2);
-    setType('limit'); setSide(row.classList.contains('ask') ? 'buy' : 'sell');
-  };
-  $('asks').addEventListener('click', rowClick); $('bids').addEventListener('click', rowClick);
-  const cancelClick = e => { const b = e.target.closest('[data-cancel]'); if (b) cancelMine(Number(b.dataset.cancel)); };
-  $('mine').addEventListener('pointerdown', cancelClick);
-  $('mine').addEventListener('click', e => { if (e.detail === 0) cancelClick(e); });
-  $('cancelAll').addEventListener('click', () => { [...orders.values()].filter(o => o.owner === YOU).forEach(o => cancelMine(o.id)); });
-  $('pause').addEventListener('click', () => { paused = !paused; $('pause').textContent = paused ? 'Resume market' : 'Pause market'; schedule(); });
-  $('step').addEventListener('click', () => { botEvent(); render(); });
-  $('speed').addEventListener('input', schedule);
-  $('reset').addEventListener('click', () => { init(); schedule(); });
-
-  init(); schedule();
-})();
+  if (cur) bands.push(cur);
+  for (const [m0, m1] of bands) g += `<rect x="${x(m0)}" y="${T}" width="${Math.max(1, x(m1) - x(m0))}" height="${ih}" fill="var(--nobg)"/>`;
+  // tick floor
+  if (G !== 'none') { let pts = [];
+    for (let m = 1; m <= 999; m += 1) pts.push(`${x(m).toFixed(1)},${y(tickAt(G, m) / 10).toFixed(1)}`);
+    g += `<polyline fill="none" stroke="var(--no)" stroke-width="2.2" points="${pts.join(' ')}"/>`; }
+  let pts = [];
+  for (let m = 1; m <= 999; m += 1) pts.push(`${x(m).toFixed(1)},${y(100 * gm(m / 1000, A)).toFixed(1)}`);
+  g += `<polyline fill="none" stroke="var(--yes)" stroke-width="2.6" points="${pts.join(' ')}"/>`;
+  g += gridTag(L + 8, T + 14);
+  s.innerHTML = g;
+  // read-out
+  const sh = 100 * nBind / 999;
+  const low = bands.find(b => b[0] < 500), high = bands.find(b => b[1] > 500);
+  $('bLo').textContent = low ? cS(low[1]) : 'never';
+  $('bHi').textContent = high ? cS(high[0]) : 'never';
+  $('bSh').textContent = sh === 0 ? 'none' : (sh < 9.5 ? sh.toFixed(1) : sh.toFixed(0)) + '%';
+  const mid = 1000 * gm(0.5, A);
+  $('bindTxt').innerHTML = G === 'none' ? 'With no grid the maker always quotes exactly what the information justifies, and earns nothing in expectation.'
+    : `At 50¢ she needs ${cS(mid)}, far more than the ${cS(tickAt(G, 500))} tick, so the grid is slack there. It only bites in the shaded region, where the contract is cheap enough that ${cS(tickAt(G, 50))} is already more than the information is worth.`;
+  f3();
+}
+// ---- figure 2: quotes vs inventory ----
+function f2() {
+  const s = $('f2'), { W, H, L, R, T, B, iw, ih } = axes(s, [52, 14, 16, 42]); if (!W) return;
+  const p = P / 1000, sp = gm(p, A), QM = 300;
+  const vals = [];
+  for (let q = -QM; q <= QM; q += 5) { const r = p - GA * q * p * (1 - p); vals.push([q, r, r - sp / 2, r + sp / 2]); }
+  const flat = vals.flatMap(v => [v[1], v[2], v[3]]).concat([p]);
+  let lo = Math.min(...flat), hi = Math.max(...flat); const pad = Math.max(0.01, (hi - lo) * 0.18);
+  lo -= pad; hi += pad;
+  const x = q => L + iw * (q + QM) / (2 * QM), y = v => T + ih * (1 - (v - lo) / (hi - lo));
+  let g = '';
+  const stepN = [0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2].find(k => (hi - lo) / k <= 6) || 0.25;
+  for (let v = Math.ceil(lo / stepN) * stepN; v <= hi; v += stepN)
+    g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${cS(1000 * v)}</text>`;
+  for (const q of [-300, -150, 0, 150, 300]) g += `<text x="${x(q)}" y="${T + ih + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${q}</text>`;
+  g += `<text x="${L + iw / 2}" y="${H - 6}" text-anchor="middle" font-size="12" fill="var(--muted)">Inventory q (contracts, YES)</text>`;
+  g += `<line x1="${L}" x2="${W - R}" y1="${y(p)}" y2="${y(p)}" stroke="var(--muted)" stroke-dasharray="5 4"/>`;
+  g += `<line x1="${x(0)}" x2="${x(0)}" y1="${T}" y2="${T + ih}" stroke="var(--line)"/>`;
+  const line = (i, col, wd) => `<polyline fill="none" stroke="${col}" stroke-width="${wd}" points="${vals.map(v => `${x(v[0]).toFixed(1)},${y(v[i]).toFixed(1)}`).join(' ')}"/>`;
+  g += line(2, 'var(--yes)', 2.2) + line(3, 'var(--no)', 2.2) + line(1, 'var(--you)', 2.4);
+  s.innerHTML = g;
+  const q = (n) => { const r = p - GA * n * p * (1 - p); return cS(1000 * (r - sp / 2)) + ' / ' + cS(1000 * (r + sp / 2)); };
+  $('q0').textContent = q(0); $('qL').textContent = q(100); $('qS').textContent = q(-100);
+}
+// ---- figure 3: profit per contract + table ----
+function f3() {
+  const s = $('f3'), { W, H, L, R, T, B, iw, ih } = axes(s, [52, 14, 16, 42]); if (!W) return;
+  const prof = m => { const need = 1000 * gm(m / 1000, A), tk = G === 'none' ? 0 : tickAt(G, m); return Math.max(0, tk - need) / 2; };
+  let hi = 0; for (let m = 1; m <= 999; m++) hi = Math.max(hi, prof(m));
+  hi = Math.max(hi, 0.2);
+  const x = m => L + iw * m / 1000, y = v => T + ih * (1 - v / (hi * 1.15));
+  let g = '';
+  const stepN = [0.05, 0.1, 0.25, 0.5, 1, 2].find(k => hi / k <= 4) || 2;
+  for (let v = 0; v <= hi * 1.1; v += stepN) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${cS(v)}</text>`;
+  for (const m of [0, 250, 500, 750, 1000]) g += `<text x="${x(m)}" y="${T + ih + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${m / 10}¢</text>`;
+  g += `<text x="${L + iw / 2}" y="${H - 6}" text-anchor="middle" font-size="12" fill="var(--muted)">Fair value of the contract</text>`;
+  if (G === 'tapered_deci_cent' || G === 'linear_cent') for (const m of [100, 900])
+    g += `<line x1="${x(m)}" x2="${x(m)}" y1="${T}" y2="${T + ih}" stroke="var(--no)" stroke-dasharray="4 4" opacity=".7"/>`;
+  let pts = [];
+  for (let m = 1; m <= 999; m += 1) pts.push(`${x(m).toFixed(1)},${y(prof(m)).toFixed(1)}`);
+  g += `<polyline fill="none" stroke="var(--yes)" stroke-width="2.6" points="${pts.join(' ')}"/>`;
+  g += gridTag(L + 8, T + 14);
+  let nb = 0; for (let m = 1; m <= 999; m++) if (prof(m) > 0) nb++;
+  g += `<text x="${L + 8}" y="${T + 30}" font-size="12" fill="var(--muted)">Peak rent ${cS(hi)} \u00b7 binds on ${(100 * nb / 999).toFixed(0)}% of the range</text>`;
+  s.innerHTML = g;
+  const tkL = m => 10, tkT = m => (m < 100 || m > 900) ? 1 : 10;
+  $('tbl2').innerHTML = [0.05, 0.02, 0.01, 0.005].map(a => {
+    const cell = tk => { let n = 0, mx = 0;
+      for (let m = 1; m <= 999; m++) { const need = 1000 * gm(m / 1000, a), r = Math.max(0, tk(m) - need) / 2;
+        if (r > 0) n++; mx = Math.max(mx, r); }
+      return `<td>${(100 * n / 999).toFixed(0)}%</td><td>${cS(mx)}</td>`; };
+    return `<tr${Math.abs(a - A) < 1e-9 ? ' class="bind"' : ''}><td>${a}</td>${cell(tkL)}${cell(tkT)}</tr>`;
+  }).join('');
+  $('tbl').innerHTML = [20, 50, 100, 200, 500, 950].map(m => {
+    const need = 1000 * gm(m / 1000, A), tk = G === 'none' ? 0 : tickAt(G, m), real = Math.max(need, tk), b = tk > need;
+    return `<tr class="${b ? 'bind' : ''}"><td>${cS(m)}</td><td>${cS(need)}</td><td>${tk ? cS(tk) : '–'}</td><td>${cS(real)}</td><td>${b ? '<b>' + cS((tk - need) / 2) + '</b>' : '0'}</td></tr>`;
+  }).join('');
+}
+$('aS').oninput = e => { A = +e.target.value / 1000; $('aV').textContent = A.toFixed(3); f1(); f2(); };
+$('gS').onchange = e => { G = e.target.value; f1(); };
+$('pS').oninput = e => { P = +e.target.value; $('pV').textContent = cS(P); f2(); };
+$('gS2').oninput = e => { GA = +e.target.value / 10000; $('gV').textContent = GA.toFixed(4); f2(); };
+const ro = new ResizeObserver(() => { f1(); f2(); }); ro.observe($('f1Box')); ro.observe($('f2Box')); ro.observe($('f3Box'));
+$('aV').textContent = A.toFixed(3); $('pV').textContent = cS(P); $('gV').textContent = GA.toFixed(4);
+f1(); f2();
+}
 </script>
 </body>
 </html>
