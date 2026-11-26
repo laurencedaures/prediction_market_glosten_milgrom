@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interactive Limit Order Book</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: header + key figures, then three columns (book | orders | log) */
+:root{
+  --bg:#f2f4f1; --panel:#ffffff; --ink:#15202a; --muted:#5b6a76; --line:#dde2df;
+  --bid:#0e7a5c; --bid-bg:rgba(14,122,92,.15); --ask:#bf3f2e; --ask-bg:rgba(191,63,46,.14);
+  --accent:#2a4bd1; --accent-ink:#ffffff; --you:#d99a00; --you-bg:rgba(217,154,0,.2);
+  --font-body:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1418; --panel:#162027; --ink:#e6edf0; --muted:#8fa1ac; --line:#26353f;
+    --bid:#3fcf9f; --bid-bg:rgba(63,207,159,.18); --ask:#f2715f; --ask-bg:rgba(242,113,95,.18);
+    --accent:#8ba3ff; --accent-ink:#0e1418; --you:#f2c14e; --you-bg:rgba(242,193,78,.22);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1418; --panel:#162027; --ink:#e6edf0; --muted:#8fa1ac; --line:#26353f;
+  --bid:#3fcf9f; --bid-bg:rgba(63,207,159,.18); --ask:#f2715f; --ask-bg:rgba(242,113,95,.18);
+  --accent:#8ba3ff; --accent-ink:#0e1418; --you:#f2c14e; --you-bg:rgba(242,193,78,.22);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.45}
+.mono,.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+h1,h2,h3{margin:0;text-wrap:balance}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.wrap{max-width:1280px;margin:0 auto;padding:18px 16px 40px;display:flex;flex-direction:column;gap:14px}
+header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+header h1{font-size:26px;font-weight:600;letter-spacing:-.01em}
+header p{margin:4px 0 0;color:var(--muted);max-width:60ch}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.controls label{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}
+.controls input[type=range]{width:110px;accent-color:var(--accent)}
+.btn{border:1px solid var(--line);background:var(--panel);padding:7px 12px;border-radius:6px;cursor:pointer;font-weight:500}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.stat{background:var(--panel);padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.stat span.l{font-size:12px;color:var(--muted)}
+.stat b{font-family:var(--font-mono);font-weight:600;font-size:18px;font-variant-numeric:tabular-nums}
+.stat b.bid{color:var(--bid)} .stat b.ask{color:var(--ask)}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(0,.9fr);gap:14px;align-items:start}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+@media (max-width:1020px){.grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.col.third{grid-column:1/-1}}
+@media (max-width:680px){.grid{grid-template-columns:minmax(0,1fr)}}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.card h2{font-size:15px;font-weight:600;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.card h2 small{font-weight:400;color:var(--muted);font-size:12px}
+
+/* Carnet */
+.lvhead,.lv{display:grid;grid-template-columns:78px 1fr 1fr 52px;gap:6px;align-items:center;padding:0 8px}
+.lvhead{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.lvhead span:nth-child(n+2),.lv span:nth-child(n+3){text-align:right}
+.lv{position:relative;width:100%;height:27px;border:0;background:transparent;text-align:left;cursor:pointer;font-family:var(--font-mono);font-size:13px;font-variant-numeric:tabular-nums;border-radius:3px}
+.lv:hover{background:color-mix(in srgb,var(--muted) 12%,transparent)}
+.lv .bar{position:absolute;right:0;top:3px;bottom:3px;border-radius:2px;opacity:1;pointer-events:none}
+.lv.ask .bar{background:var(--ask-bg)} .lv.bid .bar{background:var(--bid-bg)}
+.lv > span{position:relative}
+.lv.ask .px{color:var(--ask);font-weight:600} .lv.bid .px{color:var(--bid);font-weight:600}
+.lv.empty .px{opacity:.45;font-weight:400}
+.lv .mine:not(:empty){background:var(--you);color:#1b1500;border-radius:3px;padding:0 5px;font-size:11px;font-weight:600;justify-self:start;line-height:17px}
+.lv .n{color:var(--muted)}
+.lv .x{margin-left:6px;cursor:pointer;font-weight:700;padding:0 2px;border-radius:2px}
+.lv .x:hover{background:rgba(0,0,0,.2)}
+.spread{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 10px;margin:4px 0;border-block:1px dashed var(--muted);font-size:12.5px;color:var(--muted)}
+.spread b{color:var(--ink);font-family:var(--font-mono);font-weight:600}
+.hint{font-size:12.5px;color:var(--muted);margin:0}
+
+svg.depth{width:100%;height:auto;display:block}
+svg.depth text{fill:var(--muted);font-family:var(--font-mono);font-size:10px}
+svg.depth .gbid{fill:var(--bid-bg);stroke:var(--bid);stroke-width:1.5}
+svg.depth .gask{fill:var(--ask-bg);stroke:var(--ask);stroke-width:1.5}
+svg.depth .axis{stroke:var(--line);stroke-width:1}
+
+/* Ticket */
+.seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:8px;cursor:pointer;font-weight:500}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.seg.side button[aria-pressed=true][data-v=buy]{background:var(--bid);color:#fff}
+.seg.side button[aria-pressed=true][data-v=sell]{background:var(--ask);color:#fff}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .seg.side button[aria-pressed=true]{color:#0b1114}}
+:root[data-theme="dark"] .seg.side button[aria-pressed=true]{color:#0b1114}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
+.field input{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:8px 10px;font-family:var(--font-mono);font-size:15px;width:100%}
+.field input:disabled{opacity:.5}
+.preview{background:var(--bg);border-left:3px solid var(--accent);padding:8px 10px;border-radius:0 6px 6px 0;font-size:13px;min-height:58px}
+.err{color:var(--ask);font-size:13px;min-height:18px;margin:0}
+.submit{padding:10px;font-weight:600;border-radius:6px;border:0;cursor:pointer;color:#fff}
+.submit.buy{background:var(--bid)} .submit.sell{background:var(--ask)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .submit{color:#0b1114}}
+:root[data-theme="dark"] .submit{color:#0b1114}
+
+/* My orders */
+.mo{display:grid;grid-template-columns:52px 1fr auto auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+.mo:last-child{border-bottom:0}
+.mo .s{font-weight:600} .mo .s.buy{color:var(--bid)} .mo .s.sell{color:var(--ask)}
+.mo .ahead{color:var(--muted);font-size:12px}
+.mo button{border:1px solid var(--line);background:transparent;border-radius:5px;padding:3px 8px;cursor:pointer;font-size:12px}
+.mo button:hover{border-color:var(--ask);color:var(--ask)}
+.empty-note{color:var(--muted);font-size:13px;margin:0}
+
+/* Missions */
+.missions{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.missions li{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:start}
+.missions .ck{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);margin-top:1px;display:grid;place-items:center;font-size:12px;color:transparent}
+.missions li.done .ck{background:var(--bid);border-color:var(--bid);color:#fff}
+.missions li.done b{text-decoration:line-through;text-decoration-color:var(--muted);color:var(--muted)}
+.missions b{font-weight:600;display:block;font-size:14px}
+.missions span.d{font-size:12.5px;color:var(--muted)}
+
+/* Journal & tape */
+.log{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto;padding-right:4px}
+.log div{font-size:13px;padding:6px 8px;border-radius:5px;background:var(--bg);border-left:3px solid var(--muted)}
+.log div.fill{border-color:var(--you)} .log div.ok{border-color:var(--accent)} .log div.warn{border-color:var(--ask)}
+.tape{font-family:var(--font-mono);font-size:13px;font-variant-numeric:tabular-nums;max-height:300px;overflow:auto}
+.tp{display:grid;grid-template-columns:44px 1fr 1fr;gap:6px;padding:2px 4px}
+.tp span:nth-child(n+2){text-align:right}
+.tp .t{color:var(--muted)}
+.tp.buy .p{color:var(--bid)} .tp.sell .p{color:var(--ask)}
+
+.lexique dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px 24px;margin:0}
+.lexique dt{font-weight:600} .lexique dd{margin:2px 0 0;color:var(--muted);font-size:13.5px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Interactive Limit Order Book</h1>
+      <p>A fictional one-stock market. Bots post and cancel orders all the time. Place your own limit and market orders and watch what happens in the book.</p>
+    </div>
+    <div class="controls">
+      <button class="btn" id="pause" type="button">Pause market</button>
+      <button class="btn" id="step" type="button">Next event</button>
+      <label for="speed">Speed <input id="speed" type="range" min="1" max="10" value="2"></label>
+      <button class="btn" id="reset" type="button">Reset</button>
+    </div>
+  </header>
+
+  <section class="stats" aria-label="Key figures">
+    <div class="stat"><span class="l">Best bid</span><b class="bid" id="sBid">-</b></div>
+    <div class="stat"><span class="l">Best ask</span><b class="ask" id="sAsk">-</b></div>
+    <div class="stat"><span class="l">Spread</span><b id="sSpread">-</b></div>
+    <div class="stat"><span class="l">Last price</span><b id="sLast">-</b></div>
+    <div class="stat"><span class="l">Your position</span><b id="sPos">0</b></div>
+    <div class="stat"><span class="l">Your P&amp;L</span><b id="sPnl">$0.00</b></div>
+  </section>
+
+  <div class="grid">
+    <div class="col">
+      <section class="card" aria-labelledby="hBook">
+        <h2 id="hBook">The order book <small>click a price to prepare an order</small></h2>
+        <div>
+          <div class="lvhead"><span>Yours</span><span>Price</span><span>Size</span><span>Orders</span></div>
+          <div id="asks"></div>
+          <div class="spread" id="spreadRow"></div>
+          <div id="bids"></div>
+        </div>
+        <p class="hint">Sellers (asks) are on top, buyers (bids) at the bottom. Dimmed rows are prices where nobody is waiting. Your own quantity shows in yellow.</p>
+      </section>
+      <section class="card" aria-labelledby="hDepth">
+        <h2 id="hDepth">Cumulative depth <small>quantity available up to each price</small></h2>
+        <svg class="depth" id="depth" viewBox="0 0 600 190" role="img" aria-label="Order book depth chart"></svg>
+        <div class="legend"><span><i style="background:var(--bid)"></i>Buyers</span><span><i style="background:var(--ask)"></i>Sellers</span></div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card" aria-labelledby="hTicket">
+        <h2 id="hTicket">Place an order</h2>
+        <form id="ticket" novalidate>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="seg side" role="group" aria-label="Side">
+              <button type="button" data-v="buy" aria-pressed="true">Buy</button>
+              <button type="button" data-v="sell" aria-pressed="false">Sell</button>
+            </div>
+            <div class="seg type" role="group" aria-label="Order type">
+              <button type="button" data-v="limit" aria-pressed="true">Limit order</button>
+              <button type="button" data-v="market" aria-pressed="false">Market order</button>
+            </div>
+            <div class="fields">
+              <label class="field" for="price">Limit price ($)<input id="price" type="number" step="0.01" min="0.01" inputmode="decimal"></label>
+              <label class="field" for="qty">Quantity<input id="qty" type="number" step="10" min="1" value="50" inputmode="numeric"></label>
+            </div>
+            <div class="preview" id="preview" aria-live="polite"></div>
+            <p class="err" id="err" role="alert"></p>
+            <button class="submit buy" id="send" type="submit">Send buy order</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card" aria-labelledby="hMine">
+        <h2 id="hMine">Your resting orders <button class="btn" id="cancelAll" type="button" style="padding:3px 9px;font-size:12px">Cancel all</button></h2>
+        <div id="mine"></div>
+      </section>
+
+      <section class="card" aria-labelledby="hMis">
+        <h2 id="hMis">Exercises <small id="misCount">0 / 6</small></h2>
+        <ul class="missions" id="missions"></ul>
+      </section>
+    </div>
+
+    <div class="col third">
+      <section class="card" aria-labelledby="hLog">
+        <h2 id="hLog">Your order log</h2>
+        <div class="log" id="log" aria-live="polite"></div>
+      </section>
+      <section class="card" aria-labelledby="hTape">
+        <h2 id="hTape">Trades <small>color shows who took the initiative</small></h2>
+        <div class="tape">
+          <div class="tp" style="color:var(--muted);font-size:11px;text-transform:uppercase"><span>#</span><span>Price</span><span>Size</span></div>
+          <div id="tape"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <section class="card lexique" aria-labelledby="hLex">
+    <h2 id="hLex">Glossary</h2>
+    <dl>
+      <div><dt>Limit order book (LOB)</dt><dd>The list of all resting limit orders, sorted by price. Buyers on one side, sellers on the other.</dd></div>
+      <div><dt>Limit order</dt><dd>"I will buy (or sell) at this price or better." If nobody is on the other side, it waits in the book. It supplies liquidity.</dd></div>
+      <div><dt>Market order</dt><dd>"Buy (or sell) right now at the best available price." It consumes liquidity and may walk through several price levels.</dd></div>
+      <div><dt>Spread</dt><dd>The gap between the best ask and the best bid. It is the immediate cost of a round trip.</dd></div>
+      <div><dt>Price-time priority</dt><dd>The best price is served first. At the same price, the earliest order is served first (a queue).</dd></div>
+      <div><dt>Slippage</dt><dd>The difference between the best price shown at the start and the average price a large market order actually gets.</dd></div>
+      <div><dt>Aggressive / passive order</dt><dd>Aggressive: it crosses the book and trades immediately. Passive: it waits for a counterparty to come to it.</dd></div>
+      <div><dt>Depth</dt><dd>Cumulative quantity available near the best price. A deep book absorbs large orders without moving much.</dd></div>
+    </dl>
+  </section>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const YOU = 'you', BOT = 'bot', N = 9;
+  const $ = id => document.getElementById(id);
+  const P = c => (c / 100).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const P3 = c => (c / 100).toLocaleString('en-US', {minimumFractionDigits: 3, maximumFractionDigits: 3});
+  const E = c => (c < 0 ? '-' : '') + '$' + P(Math.abs(c));
+  const plural = (n, s, p) => n > 1 ? p : s;
+
+  let book, orders, seq, nextId, tradeN, st, journal, tape, done, timer, paused = false;
+  let side = 'buy', type = 'limit';
+
+  const MISSIONS = [
+    {id: 'm1', t: 'Post a resting order', d: 'Place a limit buy below the best ask. It crosses nobody and joins the book.'},
+    {id: 'm2', t: 'Improve the best price', d: 'Place a resting limit order that becomes the new best bid (or ask). The spread must be at least 2 ticks.'},
+    {id: 'm3', t: 'Fire an aggressive limit order', d: 'Buy with a limit price at or above the best ask. Check the price you are actually filled at.'},
+    {id: 'm4', t: 'Sweep several levels', d: 'Send a market order larger than the size at the best level. Read the slippage in the log.'},
+    {id: 'm5', t: 'Join the queue', d: 'Place an order at a price where others already wait. In "Your resting orders", read the quantity ahead of you.'},
+    {id: 'm6', t: 'Cancel an order', d: 'Remove one of your resting orders with the Cancel button.'}
+  ];
+
+  /* ---------- Engine ---------- */
+  const rq = (a = 10, b = 100) => a + 10 * Math.floor(Math.random() * ((b - a) / 10 + 1));
+  const geom = p => { let g = 0; while (Math.random() > p && g < 10) g++; return g; };
+  const book_of = o => o.side === 'buy' ? book.bid : book.ask;
+
+  function best(s) {
+    let b = null;
+    for (const p of book[s].keys()) if (b === null || (s === 'ask' ? p < b : p > b)) b = p;
+    return b;
+  }
+  function refPrice() {
+    const bb = best('bid'), ba = best('ask');
+    return bb !== null && ba !== null ? Math.round((bb + ba) / 2) : st.last;
+  }
+  function levels(s) {
+    const arr = [];
+    for (const [price, q] of book[s]) {
+      let qty = 0, mine = 0;
+      for (const o of q) { qty += o.rem; if (o.owner === YOU) mine += o.rem; }
+      arr.push({price, qty, n: q.length, mine});
+    }
+    arr.sort((a, b) => s === 'ask' ? a.price - b.price : b.price - a.price);
+    return arr;
+  }
+  function queueAhead(o) {
+    let a = 0;
+    for (const x of book_of(o).get(o.price) || []) { if (x === o) break; a += x.rem; }
+    return a;
+  }
+
+  function submit(o) {
+    o.id = nextId++; o.rem = o.qty; o.ts = ++seq;
+    const opp = o.side === 'buy' ? book.ask : book.bid;
+    const oppName = o.side === 'buy' ? 'ask' : 'bid';
+    const fills = [];
+    while (o.rem > 0) {
+      const bp = best(oppName);
+      if (bp === null) break;
+      if (o.type === 'limit' && (o.side === 'buy' ? bp > o.price : bp < o.price)) break;
+      const q = opp.get(bp), r = q[0];
+      const n = Math.min(r.rem, o.rem);
+      r.rem -= n; o.rem -= n;
+      fills.push({price: bp, qty: n});
+      st.last = bp; tradeN++;
+      tape.unshift({n: tradeN, price: bp, qty: n, side: o.side});
+      if (tape.length > 40) tape.pop();
+      const sgn = o.side === 'buy' ? 1 : -1;
+      if (o.owner === YOU) { st.cash -= sgn * bp * n; st.pos += sgn * n; }
+      if (r.owner === YOU) { st.cash += sgn * bp * n; st.pos -= sgn * n; }
+      if (r.owner === YOU && o.owner !== YOU) {
+        log('fill', `Your ${r.side} order #${r.id} was hit: ${n} at ${P(bp)}${r.rem === 0 ? ' (fully filled)' : `, ${r.rem} still resting`}.`);
+      }
+      if (r.rem === 0) { q.shift(); orders.delete(r.id); if (!q.length) opp.delete(bp); }
+    }
+    let rested = false;
+    if (o.rem > 0 && o.type === 'limit') {
+      const m = book_of(o);
+      if (!m.has(o.price)) m.set(o.price, []);
+      m.get(o.price).push(o); orders.set(o.id, o); rested = true;
+    }
+    return {o, fills, rested};
+  }
+  function cancel(id) {
+    const o = orders.get(id);
+    if (!o) return false;
+    const m = book_of(o), q = m.get(o.price);
+    q.splice(q.indexOf(o), 1);
+    if (!q.length) m.delete(o.price);
+    orders.delete(id);
+    return true;
+  }
+
+  /* Dry run without touching the book, used for the preview */
+  function dry(s, t, price, qty) {
+    const lv = levels(s === 'buy' ? 'ask' : 'bid');
+    let rem = qty, cost = 0, used = 0;
+    for (const l of lv) {
+      if (rem <= 0) break;
+      if (t === 'limit' && (s === 'buy' ? l.price > price : l.price < price)) break;
+      const n = Math.min(l.qty, rem);
+      rem -= n; cost += n * l.price; used++;
+    }
+    return {filled: qty - rem, rem, cost, used, bestOpp: lv.length ? lv[0].price : null};
+  }
+
+  /* ---------- Bots ---------- */
+  function botEvent() {
+    const r = Math.random(), ref = refPrice();
+    const s = Math.random() < .5 ? 'buy' : 'sell';
+    const botCount = [...orders.values()].filter(o => o.owner === BOT);
+    if (r < .48 && botCount.length < 140) {
+      const g = geom(.45);
+      const price = Math.max(100, s === 'buy' ? ref - 1 - g : ref + 1 + g);
+      submit({side: s, type: 'limit', price, qty: rq(), owner: BOT});
+    } else if (r < .60) {
+      submit({side: s, type: 'market', qty: rq(10, 40), owner: BOT});
+    } else if (r < .64) {
+      submit({side: s, type: 'market', qty: rq(80, 200), owner: BOT});
+    } else if (r < .70) {
+      const b = best(s === 'buy' ? 'ask' : 'bid');
+      if (b !== null) submit({side: s, type: 'limit', price: b, qty: rq(10, 60), owner: BOT});
+    } else if (botCount.length) {
+      cancel(botCount[Math.floor(Math.random() * botCount.length)].id);
+    }
+    // Keep both sides of the book alive
+    for (const sd of ['buy', 'sell']) {
+      const nm = sd === 'buy' ? 'bid' : 'ask';
+      if (book[nm].size < 4) {
+        const rf = refPrice(), g = geom(.5);
+        submit({side: sd, type: 'limit', price: sd === 'buy' ? rf - 2 - g : rf + 2 + g, qty: rq(), owner: BOT});
+      }
+    }
+  }
+
+  /* ---------- Log and exercises ---------- */
+  function log(cls, html) { journal.unshift({cls, html}); if (journal.length > 40) journal.pop(); }
+  function complete(id) { if (!done.has(id)) { done.add(id); log('ok', `Exercise complete: ${MISSIONS.find(m => m.id === id).t}.`); } }
+
+  function report(res, pre) {
+    const o = res.o, verb = o.side;
+    const filled = o.qty - o.rem;
+    const notional = res.fills.reduce((a, f) => a + f.price * f.qty, 0);
+    const avg = filled ? Math.round(notional / filled) : 0;
+    const prices = new Set(res.fills.map(f => f.price));
+    const oppBest = o.side === 'buy' ? pre.ba : pre.bb;
+    if (o.type === 'market') {
+      if (!filled) { log('warn', `Market ${verb} of ${o.qty}: rejected, there is nobody on the other side of the book.`); return; }
+      const avgRaw = notional / filled, slip = Math.abs(avgRaw - oppBest);
+      let t = `Market ${verb} of ${o.qty}: ${filled} filled at an average price of ${P3(avgRaw)}, across ${prices.size} price ${plural(prices.size, 'level', 'levels')}. The best price at the start was ${P(oppBest)}, so slippage is ${P3(slip)} per unit.`;
+      if (o.rem) t += ` The book ran out; the remaining ${o.rem} are cancelled.`;
+      log('ok', t); return;
+    }
+    if (!filled) {
+      const ahead = queueAhead(o);
+      log('ok', `Limit ${verb} of ${o.qty} at ${P(o.price)}: it does not cross the book${oppBest !== null ? ` (best price on the other side: ${P(oppBest)})` : ''}. It rests in the queue${ahead ? `, with ${ahead} ahead of you` : ', first in line at this price'}.`);
+      return;
+    }
+    let t = `Limit ${verb} of ${o.qty} at ${P(o.price)}: ${filled} filled immediately at an average price of ${P(avg)}. You trade at the resting orders' prices, not at your own limit.`;
+    if (o.rem) t += ` The remaining ${o.rem} rest in the book at ${P(o.price)}.`;
+    log('ok', t);
+  }
+
+  /* ---------- User actions ---------- */
+  function readTicket() {
+    const qty = parseInt($('qty').value, 10);
+    const price = Math.round(parseFloat($('price').value) * 100);
+    return {qty, price};
+  }
+  function placeUser() {
+    const {qty, price} = readTicket();
+    $('err').textContent = '';
+    if (!Number.isFinite(qty) || qty < 1) { $('err').textContent = 'Enter a whole quantity of at least 1.'; return; }
+    if (type === 'limit' && (!Number.isFinite(price) || price < 1)) { $('err').textContent = 'Enter a limit price, for example 100.05.'; return; }
+    const pre = {bb: best('bid'), ba: best('ask')};
+    const res = submit({side, type, price: type === 'limit' ? price : null, qty, owner: YOU});
+    report(res, pre);
+    const nFills = res.fills.length;
+    const nPrices = new Set(res.fills.map(f => f.price)).size;
+    if (type === 'limit' && res.rested && !nFills) {
+      complete('m1');
+      if (side === 'buy' ? (pre.bb === null || price > pre.bb) : (pre.ba === null || price < pre.ba)) complete('m2');
+      if (queueAhead(res.o) > 0) complete('m5');
+    }
+    if (type === 'limit' && nFills) complete('m3');
+    if (type === 'market' && nPrices >= 2) complete('m4');
+    if (type === 'limit' && res.rested && nFills === 0 && queueAhead(res.o) > 0) complete('m5');
+    render();
+  }
+  function cancelMine(id) {
+    const o = orders.get(id);
+    if (o && o.owner === YOU && cancel(id)) {
+      log('ok', `Order #${id} cancelled: ${o.side} of ${o.rem} at ${P(o.price)} removed from the book. You lose your place in the queue.`);
+      complete('m6'); render();
+    }
+  }
+
+  /* ---------- Interface ---------- */
+  function setSide(s) {
+    side = s;
+    document.querySelectorAll('.seg.side button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === s)));
+    const btn = $('send'); btn.className = 'submit ' + s;
+    btn.textContent = s === 'buy' ? 'Send buy order' : 'Send sell order';
+    preview();
+  }
+  function setType(t) {
+    type = t;
+    document.querySelectorAll('.seg.type button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === t)));
+    $('price').disabled = t === 'market';
+    preview();
+  }
+
+  function preview() {
+    const {qty, price} = readTicket();
+    const el = $('preview');
+    if (!Number.isFinite(qty) || qty < 1) { el.textContent = 'Enter a quantity to see what would happen.'; return; }
+    const verb = side === 'buy' ? 'buy' : 'sell';
+    if (type === 'market') {
+      const d = dry(side, 'market', null, qty);
+      if (!d.filled) { el.textContent = 'Nobody is on the other side: a market order would be rejected.'; return; }
+      const avg = Math.round(d.cost / d.filled);
+      el.innerHTML = `You want to ${verb} <b>${qty}</b> right now. Estimate: average price <b class="mono">${P(avg)}</b> across ${d.used} ${plural(d.used, 'level', 'levels')}, versus a best price of <span class="mono">${P(d.bestOpp)}</span>.${d.rem ? ` The book is ${d.rem} short.` : ''}`;
+      return;
+    }
+    if (!Number.isFinite(price) || price < 1) { el.textContent = 'Enter a limit price to see whether the order crosses the book.'; return; }
+    const d = dry(side, 'limit', price, qty);
+    if (d.filled) {
+      const avg = Math.round(d.cost / d.filled);
+      el.innerHTML = `<b>This price crosses the book</b>: ${d.filled} filled immediately at an average price of <b class="mono">${P(avg)}</b>.${d.rem ? ` The remaining ${d.rem} will rest at ${P(price)}.` : ''}`;
+    } else {
+      const same = (book[side === 'buy' ? 'bid' : 'ask'].get(price) || []).reduce((a, o) => a + o.rem, 0);
+      el.innerHTML = `<b>This price does not cross the book</b>: the order will rest at <span class="mono">${P(price)}</span>. ${same ? `<b>${same}</b> already wait at this price: you will queue behind them.` : 'Nobody waits at this price: you will be first in the queue.'}`;
+    }
+  }
+
+  const rowsA = [], rowsB = [];
+  function mkRow(cls) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'lv ' + cls;
+    b.innerHTML = '<i class="bar"></i><span class="mine"></span><span class="px"></span><span class="q"></span><span class="n"></span>';
+    return b;
+  }
+  function buildLadder() {
+    $('asks').replaceChildren(); $('bids').replaceChildren(); rowsA.length = 0; rowsB.length = 0;
+    for (let i = 0; i < N; i++) { const r = mkRow('ask'); rowsA.push(r); $('asks').appendChild(r); }
+    for (let i = 0; i < N; i++) { const r = mkRow('bid'); rowsB.push(r); $('bids').appendChild(r); }
+  }
+  function fillRow(row, p, l, mx) {
+    row.dataset.price = p;
+    row.querySelector('.px').textContent = P(p);
+    row.querySelector('.q').textContent = l ? l.qty : '';
+    row.querySelector('.n').textContent = l ? l.n : '';
+    const mh = l && l.mine ? `${l.mine}<span class="x" role="button" title="Cancel my orders at this price" aria-label="Cancel my orders at this price">✕</span>` : '';
+    const mc = row.querySelector('.mine');
+    if (mc._h !== mh) { mc.innerHTML = mh; mc._h = mh; }
+    row.querySelector('.bar').style.width = l ? (l.qty / mx * 62) + '%' : '0';
+    row.classList.toggle('empty', !l);
+    const isAsk = row.classList.contains('ask');
+    row.title = (isAsk ? 'Prepare a buy at ' : 'Prepare a sell at ') + P(p);
+  }
+  function renderLadder() {
+    const bb = best('bid'), ba = best('ask'), ref = refPrice();
+    const A = new Map(levels('ask').map(l => [l.price, l])), B = new Map(levels('bid').map(l => [l.price, l]));
+    const a0 = ba !== null ? ba : ref + 1, b0 = bb !== null ? bb : ref - 1;
+    let mx = 1;
+    for (let i = 0; i < N; i++) { mx = Math.max(mx, (A.get(a0 + i) || {qty: 0}).qty, (B.get(b0 - i) || {qty: 0}).qty); }
+    rowsA.forEach((r, j) => { const p = a0 + (N - 1 - j); fillRow(r, p, A.get(p), mx); });
+    rowsB.forEach((r, j) => { const p = b0 - j; fillRow(r, p, B.get(p), mx); });
+    const sp = bb !== null && ba !== null ? ba - bb : null;
+    $('spreadRow').innerHTML = sp === null
+      ? '<span>One side of the book is empty.</span>'
+      : `<span>Spread <b>${sp}</b> ${plural(sp, 'tick', 'ticks')} ($${P(sp)})</span><span>Mid price <b>${P(Math.round((bb + ba) / 2))}</b></span>`;
+  }
+
+  function renderDepth() {
+    const bb = best('bid'), ba = best('ask'), ref = refPrice();
+    const W = 600, H = 190, L = 40, R = 8, T = 10, Bt = 26;
+    const lo = (bb !== null ? bb : ref) - 14, hi = (ba !== null ? ba : ref) + 14;
+    const bidsL = levels('bid').filter(l => l.price >= lo), asksL = levels('ask').filter(l => l.price <= hi);
+    let cb = 0, ca = 0;
+    const bc = bidsL.map(l => ({p: l.price, c: (cb += l.qty)})), ac = asksL.map(l => ({p: l.price, c: (ca += l.qty)}));
+    const mx = Math.max(cb, ca, 1);
+    const x = p => L + (p - lo) / (hi - lo) * (W - L - R), y = c => H - Bt - c / mx * (H - Bt - T);
+    const base = H - Bt;
+    let g = '';
+    if (bc.length) {
+      let d = `M${x(bc[0].p)},${base}`;
+      bc.forEach((pt, i) => { d += ` L${x(pt.p)},${y(pt.c)} L${x(i + 1 < bc.length ? bc[i + 1].p : lo)},${y(pt.c)}`; });
+      d += ` L${x(lo)},${base} Z`; g += `<path class="gbid" d="${d}"/>`;
+    }
+    if (ac.length) {
+      let d = `M${x(ac[0].p)},${base}`;
+      ac.forEach((pt, i) => { d += ` L${x(pt.p)},${y(pt.c)} L${x(i + 1 < ac.length ? ac[i + 1].p : hi)},${y(pt.c)}`; });
+      d += ` L${x(hi)},${base} Z`; g += `<path class="gask" d="${d}"/>`;
+    }
+    const mid = Math.round((lo + hi) / 2);
+    g += `<line class="axis" x1="${L}" y1="${base}" x2="${W - R}" y2="${base}"/><line class="axis" x1="${L}" y1="${T}" x2="${L}" y2="${base}"/>`
+      + `<text x="${L - 5}" y="${T + 8}" text-anchor="end">${mx}</text><text x="${L - 5}" y="${base}" text-anchor="end">0</text>`
+      + `<text x="${L}" y="${H - 8}">${P(lo)}</text><text x="${x(mid)}" y="${H - 8}" text-anchor="middle">${P(mid)}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">${P(hi)}</text>`;
+    $('depth').innerHTML = g;
+  }
+
+  function renderMine() {
+    const mine = [...orders.values()].filter(o => o.owner === YOU).sort((a, b) => a.ts - b.ts);
+    $('mine').innerHTML = mine.length ? mine.map(o => `<div class="mo"><span class="s ${o.side}">${o.side === 'buy' ? 'Buy' : 'Sell'}</span><span class="mono">${o.rem}${o.rem < o.qty ? ' / ' + o.qty : ''} at ${P(o.price)}</span><span class="ahead">ahead of you: ${queueAhead(o)}</span><button type="button" data-cancel="${o.id}" aria-label="Cancel order ${o.id}">Cancel</button></div>`).join('')
+      : '<p class="empty-note">No resting orders. A limit order that does not cross the book will appear here.</p>';
+  }
+  function renderStats() {
+    const bb = best('bid'), ba = best('ask');
+    $('sBid').textContent = bb !== null ? P(bb) : '-';
+    $('sAsk').textContent = ba !== null ? P(ba) : '-';
+    $('sSpread').textContent = bb !== null && ba !== null ? `${ba - bb} ${plural(ba - bb, 'tick', 'ticks')}` : '-';
+    $('sLast').textContent = P(st.last);
+    $('sPos').textContent = (st.pos > 0 ? '+' : '') + st.pos;
+    const mid = bb !== null && ba !== null ? (bb + ba) / 2 : st.last;
+    const pnl = Math.round(st.cash + st.pos * mid);
+    const el = $('sPnl'); el.textContent = (pnl > 0 ? '+' : '') + E(pnl);
+    el.className = pnl > 0 ? 'bid' : pnl < 0 ? 'ask' : '';
+  }
+  function renderMissions() {
+    $('missions').innerHTML = MISSIONS.map(m => `<li class="${done.has(m.id) ? 'done' : ''}"><span class="ck" aria-hidden="true">✓</span><div><b>${m.t}</b><span class="d">${m.d}</span></div></li>`).join('');
+    $('misCount').textContent = `${done.size} / ${MISSIONS.length}`;
+  }
+  function render() {
+    renderStats(); renderLadder(); renderDepth(); renderMine(); renderMissions(); preview();
+    $('log').innerHTML = journal.length ? journal.map(j => `<div class="${j.cls}">${j.html}</div>`).join('') : '<div>Your orders and their fills are explained here.</div>';
+    $('tape').innerHTML = tape.slice(0, 16).map(t => `<div class="tp ${t.side}"><span class="t">${t.n}</span><span class="p">${P(t.price)}</span><span>${t.qty}</span></div>`).join('');
+  }
+
+  /* ---------- Start-up ---------- */
+  function init() {
+    book = {bid: new Map(), ask: new Map()}; orders = new Map(); seq = 0; nextId = 1; tradeN = 0;
+    st = {cash: 0, pos: 0, last: 10000}; journal = []; tape = []; done = new Set();
+    for (let k = 0; k < 12; k++) {
+      for (let i = 0, n = 1 + Math.floor(Math.random() * 3); i < n; i++) {
+        submit({side: 'buy', type: 'limit', price: 9999 - k, qty: rq(), owner: BOT});
+        submit({side: 'sell', type: 'limit', price: 10001 + k, qty: rq(), owner: BOT});
+      }
+    }
+    $('price').value = '99.98'; setSide('buy'); setType('limit');
+    buildLadder(); render();
+  }
+  function schedule() {
+    clearInterval(timer);
+    if (!paused) timer = setInterval(() => { botEvent(); render(); }, 1000 / Number($('speed').value));
+  }
+
+  document.querySelectorAll('.seg.side button').forEach(b => b.addEventListener('click', () => setSide(b.dataset.v)));
+  document.querySelectorAll('.seg.type button').forEach(b => b.addEventListener('click', () => setType(b.dataset.v)));
+  ['price', 'qty'].forEach(id => $(id).addEventListener('input', preview));
+  $('ticket').addEventListener('submit', e => { e.preventDefault(); placeUser(); });
+  const rowClick = e => {
+    const row = e.target.closest('.lv'); if (!row) return;
+    if (e.target.closest('.x')) {
+      const p = Number(row.dataset.price), sd = row.classList.contains('ask') ? 'sell' : 'buy';
+      [...orders.values()].filter(o => o.owner === YOU && o.price === p && o.side === sd).forEach(o => cancelMine(o.id));
+      return;
+    }
+    $('price').value = (Number(row.dataset.price) / 100).toFixed(2);
+    setType('limit'); setSide(row.classList.contains('ask') ? 'buy' : 'sell');
+  };
+  $('asks').addEventListener('click', rowClick); $('bids').addEventListener('click', rowClick);
+  const cancelClick = e => { const b = e.target.closest('[data-cancel]'); if (b) cancelMine(Number(b.dataset.cancel)); };
+  $('mine').addEventListener('pointerdown', cancelClick);
+  $('mine').addEventListener('click', e => { if (e.detail === 0) cancelClick(e); });
+  $('cancelAll').addEventListener('click', () => { [...orders.values()].filter(o => o.owner === YOU).forEach(o => cancelMine(o.id)); });
+  $('pause').addEventListener('click', () => { paused = !paused; $('pause').textContent = paused ? 'Resume market' : 'Pause market'; schedule(); });
+  $('step').addEventListener('click', () => { botEvent(); render(); });
+  $('speed').addEventListener('input', schedule);
+  $('reset').addEventListener('click', () => { init(); schedule(); });
+
+  init(); schedule();
+})();
+</script>
+</body>
+</html>
